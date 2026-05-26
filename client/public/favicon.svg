@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#0C0C3C"/>
+  <!-- Cérebro / rede neural — lado esquerdo azul, lado direito dourado -->
+  <g stroke-width="1.5" fill="none">
+    <!-- Lado esquerdo (azul) -->
+    <circle cx="16" cy="20" r="2" fill="#0C84CC"/>
+    <circle cx="12" cy="28" r="1.5" fill="#0C84CC"/>
+    <circle cx="18" cy="32" r="1.5" fill="#0C84CC"/>
+    <circle cx="14" cy="38" r="1.5" fill="#0C84CC"/>
+    <line x1="16" y1="20" x2="12" y2="28" stroke="#0C84CC"/>
+    <line x1="16" y1="20" x2="18" y2="32" stroke="#0C84CC"/>
+    <line x1="12" y1="28" x2="14" y2="38" stroke="#0C84CC"/>
+    <line x1="18" y1="32" x2="14" y2="38" stroke="#0C84CC"/>
+    <!-- Lado direito (dourado) -->
+    <circle cx="48" cy="20" r="2" fill="#E4B43C"/>
+    <circle cx="52" cy="28" r="1.5" fill="#E4B43C"/>
+    <circle cx="46" cy="32" r="1.5" fill="#E4B43C"/>
+    <circle cx="50" cy="38" r="1.5" fill="#E4B43C"/>
+    <line x1="48" y1="20" x2="52" y2="28" stroke="#E4B43C"/>
+    <line x1="48" y1="20" x2="46" y2="32" stroke="#E4B43C"/>
+    <line x1="52" y1="28" x2="50" y2="38" stroke="#E4B43C"/>
+    <line x1="46" y1="32" x2="50" y2="38" stroke="#E4B43C"/>
+  </g>
+  <!-- Cruz luminosa central -->
+  <line x1="32" y1="12" x2="32" y2="46" stroke="#FCCC54" stroke-width="3" stroke-linecap="round"/>
+  <line x1="26" y1="24" x2="38" y2="24" stroke="#FCCC54" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- Livro aberto (base) -->
+  <path d="M14 50 Q32 46 50 50 L48 54 Q32 50 16 54 Z" fill="#E4B43C" opacity="0.85"/>
+  <path d="M14 50 Q32 46 32 48 L32 52 Q32 50 16 54 Z" fill="#0C84CC" opacity="0.85"/>
+</svg>

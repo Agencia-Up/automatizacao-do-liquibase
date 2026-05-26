@@ -1,0 +1,139 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Paleta da Logos|IA — extraída do logo real
+ * Primary (dourado)  — #E4B43C → hsl(43, 78%, 56%)
+ * Navy (azul marinho) — #0C0C3C → hsl(240, 67%, 14%)
+ * Sky (azul accent)   — #0C84CC → hsl(202, 89%, 42%)
+ */
+
+@layer base {
+  :root {
+    /* Tema claro */
+    --background: 48 30% 98%;
+    --foreground: 240 50% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 240 50% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 50% 12%;
+
+    --primary: 43 78% 56%;
+    --primary-foreground: 240 67% 14%;
+
+    --secondary: 48 25% 94%;
+    --secondary-foreground: 240 50% 16%;
+
+    --muted: 48 18% 94%;
+    --muted-foreground: 240 16% 36%;
+
+    --accent: 240 67% 14%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 48 18% 86%;
+    --input: 48 18% 86%;
+    --ring: 43 78% 56%;
+
+    --surface: 240 67% 14%;
+    --surface-alpha: 0.04;
+    --surface-border-alpha: 0.08;
+    --hover-alpha: 0.06;
+
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 240 67% 8%;
+    --foreground: 48 30% 96%;
+
+    --card: 240 60% 11%;
+    --card-foreground: 48 30% 96%;
+
+    --popover: 240 60% 11%;
+    --popover-foreground: 48 30% 96%;
+
+    --primary: 43 78% 56%;
+    --primary-foreground: 240 67% 14%;
+
+    --secondary: 240 40% 16%;
+    --secondary-foreground: 48 30% 96%;
+
+    --muted: 240 40% 16%;
+    --muted-foreground: 48 16% 70%;
+
+    --accent: 43 78% 56%;
+    --accent-foreground: 240 67% 14%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 240 30% 20%;
+    --input: 240 30% 20%;
+    --ring: 43 78% 56%;
+
+    --surface: 48 30% 96%;
+    --surface-alpha: 0.03;
+    --surface-border-alpha: 0.08;
+    --hover-alpha: 0.06;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display tracking-tight;
+  }
+}
+
+@layer components {
+  .surface {
+    background-color: hsl(var(--surface) / var(--surface-alpha));
+    border-color: hsl(var(--surface) / var(--surface-border-alpha));
+  }
+  .surface-hover {
+    transition: background-color 150ms ease;
+  }
+  .surface-hover:hover {
+    background-color: hsl(var(--surface) / var(--hover-alpha));
+  }
+  .brand-gradient {
+    background: linear-gradient(135deg, #0c0c3c 0%, #0c84cc 50%, #e4b43c 100%);
+  }
+  .brand-gradient-text {
+    background: linear-gradient(135deg, #0c84cc 0%, #e4b43c 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: rgba(228, 180, 60, 0.5);
+    border-radius: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}

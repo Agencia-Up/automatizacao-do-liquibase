@@ -1,0 +1,19 @@
+{
+  "name": "Logos IA",
+  "short_name": "Logos IA",
+  "description": "Gerador de carrosseis e stories para Instagram com IA",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0C0C3C",
+  "theme_color": "#0C0C3C",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icone.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any maskable"
+    }
+  ]
+}

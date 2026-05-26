@@ -1,0 +1,1 @@
+ALTER TABLE carousels ADD COLUMN fontPair TEXT NOT NULL DEFAULT 'moderno';

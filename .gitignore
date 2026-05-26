@@ -1,0 +1,26 @@
+node_modules/
+dist/
+data/
+.env
+.env.local
+.env.production
+.DS_Store
+*.log
+.vite/
+coverage/
+.idea/
+.vscode/
+*.tsbuildinfo
+
+# Imagens que ficaram acidentalmente na raiz
+/WhatsApp*.jpeg
+/WhatsApp*.jpg
+/WhatsApp*.png
+/*.docx
+
+# Arquivos do Claude Code
+.claude/
+
+# Sistema operacional
+Thumbs.db
+desktop.ini

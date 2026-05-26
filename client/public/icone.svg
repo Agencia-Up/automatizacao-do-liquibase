@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#0C0C3C"/>
+  <!-- Cérebro lado esquerdo (azul) -->
+  <g fill="#0C84CC" stroke="#0C84CC" stroke-width="6">
+    <circle cx="128" cy="160" r="14"/>
+    <circle cx="96" cy="220" r="10"/>
+    <circle cx="144" cy="250" r="10"/>
+    <circle cx="100" cy="296" r="10"/>
+    <line x1="128" y1="160" x2="96" y2="220" stroke-linecap="round"/>
+    <line x1="128" y1="160" x2="144" y2="250" stroke-linecap="round"/>
+    <line x1="96" y1="220" x2="100" y2="296" stroke-linecap="round"/>
+    <line x1="144" y1="250" x2="100" y2="296" stroke-linecap="round"/>
+    <line x1="144" y1="250" x2="180" y2="280" stroke-linecap="round"/>
+  </g>
+  <!-- Cérebro lado direito (dourado) -->
+  <g fill="#E4B43C" stroke="#E4B43C" stroke-width="6">
+    <circle cx="384" cy="160" r="14"/>
+    <circle cx="416" cy="220" r="10"/>
+    <circle cx="368" cy="250" r="10"/>
+    <circle cx="412" cy="296" r="10"/>
+    <line x1="384" y1="160" x2="416" y2="220" stroke-linecap="round"/>
+    <line x1="384" y1="160" x2="368" y2="250" stroke-linecap="round"/>
+    <line x1="416" y1="220" x2="412" y2="296" stroke-linecap="round"/>
+    <line x1="368" y1="250" x2="412" y2="296" stroke-linecap="round"/>
+    <line x1="368" y1="250" x2="332" y2="280" stroke-linecap="round"/>
+  </g>
+  <!-- Cruz luminosa central -->
+  <line x1="256" y1="96" x2="256" y2="370" stroke="#FCCC54" stroke-width="20" stroke-linecap="round"/>
+  <line x1="208" y1="200" x2="304" y2="200" stroke="#FCCC54" stroke-width="16" stroke-linecap="round"/>
+  <!-- Brilho central -->
+  <circle cx="256" cy="200" r="22" fill="#FFEAA6" opacity="0.9"/>
+  <!-- Livro aberto (base) -->
+  <path d="M112 386 Q256 360 400 386 L384 416 Q256 392 128 416 Z" fill="#E4B43C"/>
+  <path d="M112 386 Q256 360 256 372 L256 408 Q256 392 128 416 Z" fill="#0C84CC"/>
+  <!-- Texto LOGOS|IA -->
+  <text x="256" y="476" font-family="Sora, system-ui, sans-serif" font-size="44" font-weight="700" letter-spacing="4" fill="#FCFCFC" text-anchor="middle">LOGOS<tspan fill="#E4B43C">|IA</tspan></text>
+</svg>
