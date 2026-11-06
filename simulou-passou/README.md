@@ -1,5 +1,7 @@
 # Simulou Passou · Simulador de provas — validação local
 
+O módulo agora também inclui o adaptador de produção, o schema isolado e a configuração do serviço. Consulte [`cloud/OPERACAO.md`](cloud/OPERACAO.md). As instruções abaixo continuam descrevendo o modo local; nesse modo, login e compra permanecem simulados.
+
 Versão navegável criada a partir do texto fornecido em 06/11/2026. A finalidade desta entrega é validar a estrutura e a experiência **antes** da integração ao painel principal, GitHub, Supabase e pagamentos.
 
 ## Abrir

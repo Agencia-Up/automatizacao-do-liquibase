@@ -16,16 +16,16 @@ const hash=(password,salt=randomBytes(16).toString('hex'))=>`${salt}:${scryptSyn
 const passwordOk=(p,stored)=>{try{const [salt,key]=stored.split(':');return timingSafeEqual(Buffer.from(key,'hex'),scryptSync(p,salt,32));}catch{return false;}};
 const safeUser=u=>u?{id:u.id,name:u.name,email:u.email,role:u.role,demo:!!u.demo}:null;
 
-export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.now(),basePath=''}={}) {
+export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.now(),basePath='',initialDb,identity,authorizeAccess,onPersist}={}) {
   if(basePath==='/'||basePath==='')basePath='';
   else if(typeof basePath!=='string'||!/^\/[a-z0-9-]+(?:\/[a-z0-9-]+)*\/?$/i.test(basePath))throw new TypeError('Prefixo de URL inválido.');
   else basePath=basePath.replace(/\/$/,'');
-  let db=dataFile&&existsSync(dataFile)?JSON.parse(readFileSync(dataFile,'utf8')):seed();
-  const persist=()=>{if(dataFile){mkdirSync(dirname(dataFile),{recursive:true});writeFileSync(`${dataFile}.tmp`,JSON.stringify(db,null,2));renameSync(`${dataFile}.tmp`,dataFile);}};
+  let db=initialDb??(dataFile&&existsSync(dataFile)?JSON.parse(readFileSync(dataFile,'utf8')):seed());
+  const persist=()=>{onPersist?.();if(dataFile){mkdirSync(dirname(dataFile),{recursive:true});writeFileSync(`${dataFile}.tmp`,JSON.stringify(db,null,2));renameSync(`${dataFile}.tmp`,dataFile);}};
   const stamp=()=>new Date(now()).toISOString();
-  const access=u=>!!u&&(u.role==='master'||u.localAccess===true||db.orders.some(o=>o.userId===u.id&&o.status==='paid'));
+  const access=u=>authorizeAccess?authorizeAccess(u):!!u&&(u.role==='master'||u.localAccess===true||db.orders.some(o=>o.userId===u.id&&o.status==='paid'));
   const publicQuiz=q=>{const qs=q.questionIds.map(id=>db.questions.find(x=>x.id===id)).filter(Boolean);return {...q,questionIds:undefined,count:qs.length,objectiveCount:qs.filter(x=>x.type==='objective').length,essayCount:qs.filter(x=>x.type==='essay').length,totalPoints:qs.reduce((n,x)=>n+x.points,0),optionCounts:[...new Set(qs.filter(x=>x.type==='objective').map(x=>x.options.length))]};};
-  const sessionUser=req=>{const cookie=req.headers.cookie||'';const sid=cookie.split(';').map(x=>x.trim()).find(x=>x.startsWith('logos_local='))?.slice(12);const s=db.sessions.find(x=>x.token===sid&&x.expires>now());return s?db.users.find(x=>x.id===s.userId):null;};
+  const sessionUser=req=>{if(identity!==undefined)return identity;const cookie=req.headers.cookie||'';const sid=cookie.split(';').map(x=>x.trim()).find(x=>x.startsWith('logos_local='))?.slice(12);const s=db.sessions.find(x=>x.token===sid&&x.expires>now());return s?db.users.find(x=>x.id===s.userId):null;};
   const needUser=req=>sessionUser(req)||fail(401,'Entre na sua conta para continuar.');
   const needMaster=req=>{const u=needUser(req);if(u.role!=='master')fail(403,'Esta área é exclusiva da administração local.');return u;};
   const needAccess=req=>{const u=needUser(req);if(!access(u))fail(403,'Seu acesso ainda não está liberado. Conclua a simulação de compra.');return u;};
@@ -50,7 +50,7 @@ export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.
     return {id:current.id||uid(),prepId:q.prepId,name:q.name,description:text(q.description,1000),questionIds:q.questionIds,durationMinutes:q.durationMinutes,passPercent:q.passPercent,maxAttempts:q.maxAttempts,status:q.status==='published'?'published':'draft',review:q.review!==false};
   }
   const workspace=createWorkspace({db,now,stamp,persist,needUser,needAccess,access,viewAttempt});
-  const server=http.createServer(async(req,res)=>{
+  const handler=async(req,res)=>{
     res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','same-origin');
     try {
       const hostname=new URL('http://'+(req.headers.host||'localhost')).hostname;
@@ -61,7 +61,7 @@ export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.
       const path=basePath?url.pathname.slice(basePath.length):url.pathname;
       if(!path.startsWith('/api/')){
         const file=path==='/'?'index.html':path.slice(1);const full=resolve(ROOT,'public',file);
-        if(!['index.html','app.js','styles.css','mobile.css','planner.js','roteiro-conteudo.txt','modelo-prova.json'].includes(file))fail(404,'Arquivo não encontrado.');
+        if(!['index.html','app.js','cloud-ui.js','styles.css','mobile.css','planner.js','roteiro-conteudo.txt','modelo-prova.json'].includes(file))fail(404,'Arquivo não encontrado.');
         const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.txt':'text/plain; charset=utf-8','.json':'application/json; charset=utf-8'};
         res.writeHead(200,{'Content-Type':types[extname(full)],'Cache-Control':'no-store','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"});res.end(readFileSync(full));return;
       }
@@ -133,7 +133,8 @@ export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.
       } else fail(404,'Página ou operação não encontrada.');
       res.writeHead(200);res.end(JSON.stringify(result));
     } catch(error){const status=error.code||500;if(status>=500)console.error(error);if(!res.headersSent)res.writeHead(status,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify({error:status>=500?'Não foi possível concluir. Tente novamente.':error.message}));}
-  });
-  return {server,db,score};
+  };
+  const server=http.createServer(handler);
+  return {server,db,score,handler};
 }
-if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){const port=Number(process.env.PORT||4178),basePath=process.env.BASE_PATH||'';const {server}=createApp({basePath});server.listen(port,'127.0.0.1',()=>console.log(`Simulou Passou — prévia LOCAL: http://127.0.0.1:${port}${basePath}/\nDados de demonstração persistidos neste computador. Nenhuma cobrança real.`));}
+if(typeof process!=='undefined'&&process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){const port=Number(process.env.PORT||4178),basePath=process.env.BASE_PATH||'';const {server}=createApp({basePath});server.listen(port,'127.0.0.1',()=>console.log(`Simulou Passou — prévia LOCAL: http://127.0.0.1:${port}${basePath}/\nDados de demonstração persistidos neste computador. Nenhuma cobrança real.`));}
