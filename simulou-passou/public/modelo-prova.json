@@ -1,0 +1,19 @@
+{
+  "orientacao": "Modelo para preenchimento e envio. Não é importado automaticamente pela prévia.",
+  "certificacao": {
+    "nome": "",
+    "instituicao": "",
+    "programa_oficial_url": "",
+    "programa_versao_data": "",
+    "quantidade_questoes": null,
+    "duracao_minutos": null,
+    "nota_minima_percentual": null,
+    "minimos_por_assunto": [],
+    "regras_de_revisao": "",
+    "responsavel_revisao_tecnica": ""
+  },
+  "materias": [{"nome": "", "topicos": [], "peso_percentual": null}],
+  "materiais": [{"titulo": "", "materia": "", "conteudo_ou_link": "", "autoria": "", "autorizacao": "", "situacao_revisao": "rascunho"}],
+  "questoes": [{"identificador": "", "materia": "", "tipo": "objetiva ou discursiva", "enunciado": "", "alternativas": [], "gabarito": "", "explicacao": "", "pontuacao": null, "criterio_discursiva": "", "fonte_e_autorizacao": "", "situacao_revisao": "rascunho"}],
+  "simulados": [{"nome": "", "identificadores_questoes": [], "duracao_minutos": null, "criterio_aprovacao": "", "limite_tentativas": null, "liberacao_gabarito": ""}]
+}

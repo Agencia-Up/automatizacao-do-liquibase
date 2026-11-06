@@ -1,0 +1,11 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {calculatePracticePlan,formatPlanTime} from '../public/planner.js';
+const base={sessions:10,questions:30,minutes:30,review:15,days:'',current:'',target:''};
+test('1, 10 e 1.000 tentativas calculam somente volume e tempo',()=>{for(const sessions of [1,10,1000]){const r=calculatePracticePlan({...base,sessions});assert.equal(r.valid,true);assert.equal(r.totalResponses,sessions*30);assert.equal(r.totalMinutes,sessions*45);assert.equal(r.passProbability,null);assert.equal(r.requiredSessionsForPass,null);}});
+test('diferença de acerto é em pontos percentuais e não depende de repetições',()=>{for(const sessions of [1,10,1000]){const r=calculatePracticePlan({...base,sessions,current:55,target:80});assert.equal(r.gapPoints,25);assert.equal(r.passProbability,null);}});
+test('planejamento respeita tempo de revisão e dias informados',()=>{const r=calculatePracticePlan({...base,sessions:10,questions:4,minutes:10,review:5,days:20});assert.equal(r.totalResponses,40);assert.equal(r.totalMinutes,150);assert.equal(r.sessionsPerDay,.5);assert.equal(r.minutesPerDay,7.5);});
+test('percentual zero, meta atingida e revisão zero são valores válidos',()=>{assert.equal(calculatePracticePlan({...base,current:0,target:80}).gapPoints,80);assert.equal(calculatePracticePlan({...base,current:90,target:70}).gapPoints,0);assert.equal(calculatePracticePlan({...base,review:0}).totalMinutes,300);});
+test('não assume acerto ou meta quando o usuário deixa vazio',()=>{assert.equal(calculatePracticePlan(base).gapPoints,null);assert.equal(calculatePracticePlan({...base,current:50}).gapPoints,null);});
+test('rejeita valores negativos, fracionários indevidos e não finitos',()=>{for(const input of [{sessions:0},{sessions:1001},{sessions:1.5},{questions:0},{minutes:Infinity},{review:-1},{target:101},{current:-1},{days:0},{days:1.5},{sessions:''}])assert.equal(calculatePracticePlan({...base,...input}).valid,false);});
+test('formatação distingue 45 minutos, 7h30 e 750 horas',()=>{assert.equal(formatPlanTime(45),'45 min');assert.equal(formatPlanTime(450),'7 h 30 min');assert.equal(formatPlanTime(45000),'750 h');});

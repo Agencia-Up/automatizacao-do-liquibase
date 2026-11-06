@@ -1,5 +1,7 @@
 # Deploy — Logos IA · Gerador de Arte
 
+> Este guia pertence ao gerador de arte anterior. Para o Simulou Passou, consulte `simulou-passou/PUBLICACAO.md`. A publicação do código do simulador neste repositório não configura automaticamente o domínio, Supabase ou pagamentos.
+
 Guia passo a passo para subir o projeto em produção no domínio
 **arte.logosia.com.br** (ou outro subdomínio que você escolher).
 

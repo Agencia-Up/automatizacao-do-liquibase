@@ -1,4 +1,22 @@
-# Logos IA
+# Simulou Passou · Logos IA
+
+O projeto Simulou Passou está em [`simulou-passou/`](simulou-passou/README.md): página de vendas, cadastro/login local, área de membros, simulados, revisão, anotações, planejamento e administração.
+
+Esta versão continua sendo uma prévia local. A publicação do código no GitHub não ativa cobrança, Supabase Auth ou hospedagem pública. Veja [`simulou-passou/PUBLICACAO.md`](simulou-passou/PUBLICACAO.md) para o estado real da integração e os próximos passos.
+
+Com Node.js 24 ou posterior:
+
+```sh
+cd simulou-passou
+npm test
+npm start
+```
+
+O código anterior do gerador de arte foi mantido abaixo e nas pastas originais. Os comandos da raiz e o Dockerfile original continuam pertencendo a esse gerador; não publicam o Simulou Passou.
+
+---
+
+# Gerador de arte — projeto anterior
 
 Plataforma full-stack para gerar **carrosséis (1080×1080)** e **stories (1080×1920)** prontos para o Instagram, com IA e renderização Canvas. Cada usuário gerencia clientes, gera conteúdo, baixa em PNG (individual ou em lote) e consulta o histórico — tudo com um sistema de créditos.
 

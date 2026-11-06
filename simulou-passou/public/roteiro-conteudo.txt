@@ -1,0 +1,65 @@
+SIMULOU PASSOU — ROTEIRO PARA ENVIO DE CONTEÚDO
+
+Pode começar por uma única prova. Envie um pacote por certificação.
+
+1. IDENTIFICAÇÃO
+Nome completo da prova/certificação:
+Instituição responsável:
+Link ou arquivo do edital/programa oficial:
+Versão/data do programa:
+Público e objetivo da prova:
+
+2. FORMATO E REGRAS
+Quantidade de questões e alternativas:
+Tipos de questão (objetiva, discursiva ou misto):
+Duração:
+Nota mínima geral e mínimos por assunto:
+Pesos e regras de pontuação:
+Regras de novas tentativas:
+Momento de liberação do gabarito e explicações:
+Responsável pela correção de discursivas:
+
+3. MATÉRIAS
+Lista de matérias, módulos e tópicos:
+Peso ou quantidade por assunto, quando houver:
+Fontes oficiais e datas de revisão:
+
+4. MATERIAIS DE APOIO
+Título, assunto e conteúdo ou link de cada material:
+Arquivos autorizados que você quer preparar para a plataforma:
+Autor/origem e autorização de uso:
+Responsável pela revisão técnica:
+Situação (rascunho / revisado):
+
+5. QUESTÕES — REPETIR PARA CADA QUESTÃO
+Certificação e assunto:
+Tipo:
+Enunciado:
+Alternativas:
+Gabarito (se objetiva):
+Explicação comentada:
+Pontuação/peso:
+Critério e modelo de resposta (se discursiva):
+Fonte/autoria e autorização de uso:
+Versão/data e situação de revisão:
+
+6. SIMULADOS
+Nome do simulado:
+Questões que entram nesta versão:
+Duração, pesos e critério de conclusão/aprovação:
+Disponibilidade das explicações:
+Limite de tentativas, se houver:
+
+O QUE JÁ EXISTE NA PRÉVIA
+ANCORD: 5 questões demonstrativas, 2 materiais e 2 simulados.
+PQO · Operações: 3 questões demonstrativas, 1 material e 1 simulado.
+Os números podem mudar conforme você editar o catálogo local.
+Não são bancos completos ou revisão técnica do programa oficial.
+A questão de duration da página de vendas é uma prévia autoral separada.
+
+OBSERVAÇÕES
+Não enviar livros completos ou bancos de terceiros sem autorização.
+Não identificar questões autorais como oficiais.
+O cadastro atual usa texto e links HTTPS. Outros arquivos precisam de preparo.
+O modelo organiza o envio; não há importação automática nesta etapa.
+Tudo permanece local até sua validação e posterior autorização de integração.
