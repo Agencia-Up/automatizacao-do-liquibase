@@ -34,7 +34,7 @@ Roteiro de conteúdo: `public/roteiro-conteudo.txt` e **Administração → Cont
 
 ## Evidências
 
-- 47 testes Node aprovados, incluindo permissões SQL, isolamento, concorrência, acesso revogado e ausência de gabaritos antes da revisão.
+- 48 testes Node aprovados, incluindo permissões SQL, isolamento, concorrência, acesso revogado e ausência de gabaritos antes da revisão.
 - PostgreSQL local/PGlite com papéis sintéticos e navegador com Auth fictício, sem criar contas reais ou enviar e-mails.
 - QA público por HTTPS em 320, 390 e 1440 px nas telas de vendas, login, cadastro, recuperação e checkout: sem erros JavaScript ou rolagem horizontal.
 - Saúde da API retornou 200; áreas pessoais/admin sem login retornaram 401; entrada master de demonstração retornou 404.

@@ -6,7 +6,7 @@ const ids={a:'11111111-1111-4111-8111-111111111111',b:'22222222-2222-4222-8222-2
 const site='https://logosiabrasil.com';
 function fixture(){
   const source=seed(),catalog={revision:1,body:Object.fromEntries(['preparations','materials','questions','quizzes'].map(k=>[k,source[k]]))};
-  const members=new Map(),active=new Set(),orders=[],calls=[];let conflict=false,commits=0;
+  const members=new Map(),active=new Set(),administrators=new Set([ids.admin]),orders=[],calls=[];let conflict=false,commits=0;
   const response=(body,status=200)=>new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}});
   const fetchImpl=async(url,options)=>{
     const u=new URL(url),token=options.headers.Authorization?.slice(7),key=Object.keys(ids).find(k=>'token-'+k===token);
@@ -17,8 +17,8 @@ function fixture(){
     if(u.pathname==='/auth/v1/signup')return response({user:user('a')});
     if(u.pathname==='/auth/v1/recover'||u.pathname==='/auth/v1/logout')return response({});
     if(u.pathname==='/rest/v1/rpc/sp_runtime_load'){
-      const actor=body.p_actor,admin=actor===ids.admin;
-      return response({admin,entitled:admin||active.has(actor),catalog,orders:orders.filter(o=>admin||o.userId===actor),members:[...members.values()].filter(r=>admin||r.user_id===actor),active_users:[...active]});
+      const actor=body.p_actor,admin=administrators.has(actor);
+      return response({admin,entitled:admin||active.has(actor),administrator_ids:admin?[...administrators]:[],catalog,orders:orders.filter(o=>admin||o.userId===actor),members:[...members.values()].filter(r=>admin||r.user_id===actor),active_users:[...active]});
     }
     if(u.pathname==='/rest/v1/rpc/sp_runtime_commit'){
       if(conflict){conflict=false;const record=members.get(body.p_actor);record.revision++;record.body.notes.push({id:'other-tab',userId:body.p_actor,title:'Outra aba',body:'Preservar'});return response({code:'40001'},409);}
@@ -35,7 +35,7 @@ function fixture(){
     const res=await gateway(new Request('https://db.example.test/functions/v1/simulou-passou-api/api'+path,{method,headers:{...(account?{cookie:'sp_access=token-'+account}:{}),origin:site,...extra},body:body===undefined?undefined:JSON.stringify(body)}));
     return {status:res.status,headers:res.headers,data:await res.json()};
   };
-  return {request,members,active,orders,calls,get commits(){return commits;},conflict(){conflict=true;}};
+  return {request,members,active,administrators,orders,calls,get commits(){return commits;},conflict(){conflict=true;}};
 }
 test('produção não expõe gabaritos, atalhos de demonstração ou pagamento falso',async()=>{
   const f=fixture(),r=await f.request('/bootstrap','GET',undefined,null);
@@ -87,4 +87,11 @@ test('origem e JWT inválidos não são aceitos como identidade',async()=>{
   assert.equal((await f.request('/workspace','GET',undefined,'a',{cookie:'sp_access=forged'})).status,401);
   assert.equal((await f.request('/auth/callback','POST',{access_token:'forged',refresh_token:'forged'},null)).status,401);
   assert.equal((await f.request('/admin/access/'+ids.b,'PATCH',{active:true})).status,403);
+});
+test('duas contas administradoras são identificadas pelo cadastro protegido do módulo',async()=>{
+  const f=fixture();f.administrators.add(ids.b);
+  await f.request('/bootstrap','GET',undefined,'b');await f.request('/bootstrap','GET',undefined,'a');
+  const r=await f.request('/admin','GET',undefined,'admin');
+  assert.equal(r.status,200);assert.equal(r.data.users.find(u=>u.id===ids.b).role,'master');assert.equal(r.data.users.find(u=>u.id===ids.b).hasAccess,true);
+  assert.equal(r.data.users.find(u=>u.id===ids.a).role,'student');assert.equal(r.data.users.find(u=>u.id===ids.a).hasAccess,false);
 });

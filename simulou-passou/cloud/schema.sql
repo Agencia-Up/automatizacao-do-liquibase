@@ -77,6 +77,7 @@ begin
   entitled := adm or exists(select 1 from simulou_passou_private.entitlements where user_id=p_actor and active);
   return jsonb_build_object(
     'admin',adm,'entitled',entitled,
+    'administrator_ids',case when adm then coalesce((select jsonb_agg(user_id) from simulou_passou_private.administrators),'[]'::jsonb) else '[]'::jsonb end,
     'checkout_enabled',(select checkout_enabled from simulou_passou_private.settings where id),
     'catalog',(select jsonb_build_object('revision',revision,'body',body) from simulou_passou_private.catalog where id),
     'members',coalesce((select jsonb_agg(jsonb_build_object('user_id',user_id,'revision',revision,'body',body)) from simulou_passou_private.members where p_actor is not null and (adm or user_id=p_actor)),'[]'::jsonb),

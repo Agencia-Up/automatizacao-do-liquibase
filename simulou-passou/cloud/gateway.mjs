@@ -101,12 +101,12 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
         const db=seed();for(const key of catalogKeys)db[key]=copy(context.catalog.body[key]||[]);
         db.users=[];db.orders=context.orders||[];db.sessions=[];db.recoveries=[];db.paymentEvents=[];for(const key of personal)db[key]=[];
         const records=context.members||[];
-        for(const record of records){const state=record.body;db.users.push({...state.profile,id:record.user_id,role:'student',demo:false});for(const key of personal)db[key].push(...copy(state[key]||[]));}
+        for(const record of records){const state=record.body;db.users.push({...state.profile,id:record.user_id,role:(context.administrator_ids||[]).includes(record.user_id)?'master':'student',demo:false});for(const key of personal)db[key].push(...copy(state[key]||[]));}
         let identity=null;
         if(user){identity=db.users.find(u=>u.id===user.id);if(!identity){identity={id:user.id,name:user.user_metadata?.name||user.user_metadata?.full_name||'Participante',email:user.email,createdAt:user.created_at};db.users.push(identity);}
           identity.email=user.email;identity.role=context.admin?'master':'student';identity.demo=false;}
         let dirty=false;
-        const engine=createApp({dataFile:null,initialDb:db,identity,authorizeAccess:u=>!!u&&(u.id===user?.id?(context.admin||context.entitled):(context.active_users||[]).includes(u.id)),onPersist:()=>{dirty=true;},now});
+        const engine=createApp({dataFile:null,initialDb:db,identity,authorizeAccess:u=>!!u&&(u.id===user?.id?(context.admin||context.entitled):(context.active_users||[]).includes(u.id)||(context.administrator_ids||[]).includes(u.id)),onPersist:()=>{dirty=true;},now});
         const input=Readable.from(req.method==='GET'?[]:[JSON.stringify(body)]);
         Object.assign(input,{headers:{host:'localhost'},url:path,method:req.method});const output=new Capture();
         await engine.handler(input,output);
