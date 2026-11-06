@@ -12,6 +12,7 @@ As vendas permanecem desativadas: o catálogo inicial é demonstrativo e as cond
 
 - `simulou_passou_private`: sete tabelas com RLS, sem permissões para `anon` ou `authenticated` e fora do esquema exposto pela Data API.
 - Três RPCs `SECURITY INVOKER`, com execução revogada de `PUBLIC`, `anon` e `authenticated` e concedida somente a `service_role`.
+- A ausência de políticas para usuários nessas tabelas privadas é intencional: acesso negado por padrão. O backend utiliza o papel de serviço, que possui bypass RLS. O aviso informativo `rls_enabled_no_policy` não deve ser resolvido concedendo leitura dessas tabelas ao navegador; confira os grants e a [documentação de RLS](https://supabase.com/docs/guides/database/postgres/row-level-security).
 - O gateway valida a identidade com Supabase Auth. A chave de serviço permanece nas variáveis internas da Edge Function; nunca é entregue ao frontend ou gravada no repositório.
 - Sessões utilizam cookies `HttpOnly`, `Secure` e `SameSite=Lax`, restritos a `/simulou-passou/api`. Escritas exigem origem permitida. Tokens recebidos em links de confirmação/recuperação são removidos do fragmento antes do processamento.
 - Gabaritos e snapshots completos ficam no servidor. O runtime devolve revisão somente após finalizar, de acordo com a regra do simulado.

@@ -1,48 +1,46 @@
-# Publicação do Simulou Passou
+# Simulou Passou — publicação
 
-## Estado da entrega
+Publicado em **https://logosiabrasil.com/simulou-passou/**, com entrada em `#/entrar`. O repositório reaproveitado foi renomeado conforme solicitado para `Agencia-Up/automatizacao-do-liquibase`; a marca permanece **Simulou Passou**.
 
-Código do protótipo validado, preparado para versionamento no repositório reaproveitado da Agência Up. O nome técnico do repositório foi solicitado como `automatizacao-do-liquibase`; a marca do produto permanece **Simulou Passou**.
+## Configuração aplicada
 
-Não confundir três etapas: código no GitHub, integração ao backend real e aplicação publicada no domínio. Esta pasta executa somente a prévia local; não está pronta para servir usuários pagantes na internet.
+- EasyPanel: projeto `logos-ia`, serviço independente `simulou-passou`, porta 80, Dockerfile `simulou-passou/Dockerfile` e contexto de build na raiz do repositório.
+- Rota HTTPS: host `logosiabrasil.com`, origem e destino `/simulou-passou`. A raiz `/` continua apontando para o serviço anterior.
+- Supabase: projeto de produção `seyljsqmhlopkcauhlor` e Edge Function `simulou-passou-api`, com autenticação interna explícita por Supabase Auth.
+- Schema privado `simulou_passou_private`: sete tabelas com RLS e três RPCs restritas ao backend.
+- Duas contas existentes, indicadas pelo responsável, receberam administração exclusiva do módulo. Senhas, papéis globais e assinaturas da Logos não foram alterados.
 
-## O que está incluído
+O modo local continua disponível com `node server.mjs`, usando dados próprios de demonstração. Seus atalhos de teste não operam na API publicada.
 
-- Página comercial e calculadora claramente identificada como cenário hipotético, com parâmetros inventados e sem previsão real de aprovação.
-- Cadastro, login, recuperação e compra de demonstração, sem envio de e-mail ou cobrança.
-- Área de membros, materiais, simulados objetivos/mistos, várias tentativas, histórico, revisão e correção de discursivas.
-- Notas privadas, planejamento, caderno de erros e modo foco.
-- Administração de conteúdo e roteiro de informações editoriais a enviar.
-- Layout responsivo, dados fictícios iniciais e testes automatizados.
-- Suporte a prefixo de URL: recursos, API e links de conteúdo ficam sob `/simulou-passou/` quando `BASE_PATH=/simulou-passou`.
+## Disponível para validação
 
-## Executar a prévia sob o caminho solicitado
+Página de apresentação, acesso à conta, painel pessoal, anotações, planejamento e modo foco. Contas liberadas podem acessar materiais e simulados, realizar várias tentativas, revisar respostas e acompanhar o desempenho. Administradores podem gerenciar preparações, materiais, questões, simulados, acessos e correções de discursivas.
 
-PowerShell, dentro desta pasta:
+ANCORD/PQO contêm somente exemplos demonstrativos. A calculadora identifica seus percentuais como fictícios, sem previsão real ou promessa de aprovação.
 
-```powershell
-$env:BASE_PATH='/simulou-passou'
-$env:PORT='4179'
-node server.mjs
-```
+## Antes de abrir vendas
 
-Abra `http://127.0.0.1:4179/simulou-passou/`. O serviço continua restrito a localhost. Nenhum segredo de produção é necessário para essa prévia.
+**A cobrança está desativada, inclusive no servidor. Não existe pagamento real ou confirmação falsa disponível.**
 
-## Integração de produção pendente
+Ainda são necessários:
 
-1. Confirmar o domínio e a hospedagem que atendem a Logos IA. O antigo `DEPLOY.md` da raiz descreve um gerador de arte; não comprova a configuração atual da plataforma.
-2. Identificar o Supabase usado pela aplicação publicada: há dois projetos Logos acessíveis, `seyljsqmhlopkcauhlor` e `ezoltigtqgbmftmiwjxh`. A configuração real da aplicação deve determinar o destino antes de qualquer alteração.
-3. Trocar autenticação local por Supabase Auth, com recuperação por e-mail e URLs de retorno do módulo. Não levar usuários, hashes, sessões nem tokens da prévia para produção.
-4. Criar dados exclusivos do módulo, com RLS por proprietário para notas, planejamento, progresso e tentativas. Guardar gabaritos e rubricas em área privada, acessíveis apenas ao backend autorizado.
-5. Definir administração do módulo no servidor, sem usar metadados editáveis pelo usuário e sem conceder papéis globais da Logos aos alunos.
-6. Integrar a compra única de R$ 29,90 ao provedor real. Os bancos inspecionados contêm integração Asaas; ainda é necessário conferir o fluxo usado pela aplicação. Somente confirmação autenticada do provedor poderá conceder o acesso do módulo, com idempotência e tratamento de estorno.
-7. Remover ou bloquear em produção os atalhos `/api/auth/demo`, `/api/orders/:id/demo-event` e a recuperação que devolve o token na resposta. `localAccess` é exclusivo desta prévia.
-8. Configurar a rota `/simulou-passou/` e o backend correspondente na hospedagem existente, com HTTPS, sessões seguras, validação de origem e segredos somente no servidor.
-9. Receber e revisar as provas, programas oficiais, matérias, pesos, materiais autorizados, questões, gabaritos comentados e regras. Os exemplos ANCORD/PQO não são um catálogo completo para venda.
-10. Validar as condições comerciais e finalizar os textos de termos/privacidade. Realizar teste de ponta a ponta em ambiente apropriado antes de ativar vendas.
+1. Provas/certificações e programas oficiais que serão atendidos.
+2. Matérias, pesos, distribuição de questões, duração, nota mínima, limites e regras de revisão.
+3. Materiais autorizados e questões revisadas, com gabaritos comentados e rubricas para discursivas.
+4. Identificação comercial, suporte e textos definitivos de termos, privacidade e cancelamento.
+5. Integração e validação da cobrança real e dos webhooks, incluindo idempotência, confirmação, estorno e concessão/revogação do acesso. As tabelas de pedidos/eventos estão preparadas; o fluxo financeiro ainda não foi implementado nem ativado.
 
-Nenhuma tabela ou função Supabase foi alterada nesta preparação. Não há deploy público configurado nesta pasta nem acesso pago real liberado por ela.
+Roteiro de conteúdo: `public/roteiro-conteudo.txt` e **Administração → Conteúdo a enviar**.
 
-## Arquivos que não devem ser enviados
+## Evidências
 
-`data/`, `qa/`, logs, `.env` e arquivos com credenciais ficam fora do versionamento. O catálogo inicial em `seed.mjs` é fictício; não contém cadastros de usuários da prévia.
+- 47 testes Node aprovados, incluindo permissões SQL, isolamento, concorrência, acesso revogado e ausência de gabaritos antes da revisão.
+- PostgreSQL local/PGlite com papéis sintéticos e navegador com Auth fictício, sem criar contas reais ou enviar e-mails.
+- QA público por HTTPS em 320, 390 e 1440 px nas telas de vendas, login, cadastro, recuperação e checkout: sem erros JavaScript ou rolagem horizontal.
+- Saúde da API retornou 200; áreas pessoais/admin sem login retornaram 401; entrada master de demonstração retornou 404.
+- A raiz da Logos continuou retornando 200 com o título original após a configuração da rota.
+- Leitura confirmou que nenhuma das três RPCs pode ser executada por `anon` ou `authenticated`.
+
+Capturas e relatórios locais ficam em `qa/`, ignorados pelo Git. O responsável valida o acesso real com a senha existente, sem redefinição automática de credenciais.
+
+Arquitetura, reprodução e rollback: [cloud/OPERACAO.md](cloud/OPERACAO.md).

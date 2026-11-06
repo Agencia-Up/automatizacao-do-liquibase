@@ -1,15 +1,16 @@
 # Simulou Passou · Logos IA
 
-O projeto Simulou Passou está em [`simulou-passou/`](simulou-passou/README.md): página de vendas, cadastro/login local, área de membros, simulados, revisão, anotações, planejamento e administração.
+O projeto Simulou Passou está em [`simulou-passou/`](simulou-passou/README.md): página de vendas, cadastro/login, área de membros, simulados, revisão, anotações, planejamento e administração.
 
-Esta versão continua sendo uma prévia local. A publicação do código no GitHub não ativa cobrança, Supabase Auth ou hospedagem pública. Veja [`simulou-passou/PUBLICACAO.md`](simulou-passou/PUBLICACAO.md) para o estado real da integração e os próximos passos.
+Publicado em **https://logosiabrasil.com/simulou-passou/**, com autenticação Supabase e dados isolados do módulo. O catálogo ainda é demonstrativo e as vendas estão desativadas. Veja [`simulou-passou/PUBLICACAO.md`](simulou-passou/PUBLICACAO.md) para o estado real da integração e os próximos passos.
 
-Com Node.js 24 ou posterior:
+Para desenvolvimento local, com Node.js 24 e pnpm:
 
 ```sh
 cd simulou-passou
-npm test
-npm start
+pnpm install --frozen-lockfile
+pnpm test
+pnpm start
 ```
 
 O código anterior do gerador de arte foi mantido abaixo e nas pastas originais. Os comandos da raiz e o Dockerfile original continuam pertencendo a esse gerador; não publicam o Simulou Passou.
