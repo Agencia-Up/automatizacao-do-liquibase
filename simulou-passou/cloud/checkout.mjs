@@ -19,6 +19,7 @@ export function createCheckout({config,fetchImpl,origin,basePath,rpc,fault}){
       method:body?'POST':'GET',
       headers:{access_token:config.apiKey,'Content-Type':'application/json','User-Agent':'Simulou-Passou/1.0'},
       body:body?JSON.stringify(body):undefined,
+      redirect:'error',
       signal:AbortSignal.timeout(12000),
     });
     if(!response.ok)throw fault(503,'O provedor de pagamentos está indisponível. Tente novamente em instantes.');
@@ -58,7 +59,17 @@ export function createCheckout({config,fetchImpl,origin,basePath,rpc,fault}){
     if(typeof body.id!=='string'||body.id.length<1||body.id.length>200)throw fault(400,'Evento inválido.');
     if(checkoutEvents.has(body.event)&&checkoutId(body.checkout?.id)){
       await rpc('sp_checkout_event',{p_provider:body.checkout.id,p_mode:mode,p_event:body.id,p_state:'cancelled'});
+    }else if(body.event==='CHECKOUT_PAID'&&checkoutId(body.checkout?.id)){
+      const id=body.checkout.id;
+      const found=await rpc('sp_checkout_known',{p_provider:id,p_mode:mode});
+      if(!found)return {ok:true};
+      const payments=await provider('/payments?'+new URLSearchParams({checkoutSession:id,limit:'20'}));
+      const paid=Array.isArray(payments.data)&&payments.data.find(payment=>paidStatus.has(payment.status)&&['PIX','CREDIT_CARD'].includes(payment.billingType)&&payment.checkoutSession===id);
+      if(!paid)throw fault(503,'Pagamento ainda não confirmado no Asaas.');
+      const amount=Math.round(Number(paid.value)*100);
+      if(Number.isSafeInteger(amount))await rpc('sp_checkout_event',{p_provider:id,p_mode:mode,p_event:body.id,p_state:'paid',p_amount:amount});
     }else if(paymentEvents.has(body.event)&&checkoutId(body.payment?.id)){
+      if(checkoutId(body.payment.checkoutSession)&&!await rpc('sp_checkout_known',{p_provider:body.payment.checkoutSession,p_mode:mode}))return {ok:true};
       const payment=await provider('/payments/'+encodeURIComponent(body.payment.id));
       if(!checkoutId(payment.checkoutSession)||!['PIX','CREDIT_CARD'].includes(payment.billingType))return {ok:true};
       const state=paidStatus.has(payment.status)?'paid':refundStatus.has(payment.status)?'refunded':null;

@@ -6,7 +6,7 @@ O frontend deste módulo é servido por Nginx em um serviço separado no EasyPan
 
 A conta é autenticada pelo Supabase Auth existente. A administração e o acesso aos simulados são exclusivos do módulo e são consultados no servidor a cada solicitação. Nenhuma senha ou papel global da Logos é alterado por este pacote.
 
-As vendas permanecem desativadas: o catálogo inicial é demonstrativo e as condições comerciais, o conteúdo definitivo e a cobrança precisam ser concluídos antes da comercialização. O cadastro e as ferramentas pessoais podem ser utilizados; contas autorizadas podem executar os simulados disponíveis e administrar o conteúdo.
+O checkout é controlado por `simulou_passou_private.settings.checkout_enabled`. Mesmo com as vendas fechadas, o cadastro e as ferramentas pessoais continuam disponíveis; contas autorizadas podem executar simulados e administrar o conteúdo.
 
 ## Segurança e armazenamento
 
@@ -58,8 +58,8 @@ A recuperação e confirmação de e-mail dependem das URLs de retorno e dos tem
 - Prévia local: execute node preview-pqo.mjs e abra http://127.0.0.1:4188/. Use o perfil de demonstração para acessar os simulados.
 - O catálogo contém sete simulados autorais de 30 questões e um treino de Cadastro de Clientes com 12 questões. Use o manual da B3 para confirmar o formato vigente do exame oficial.
 - Gere a atualização do catálogo com node cloud/build-pqo-import.mjs. O SQL gerado adiciona registros por ID e preserva as tentativas existentes.
-- Aplique cloud/checkout.sql uma vez antes de publicar o gateway atualizado. Mantenha checkout_enabled desativado até testar o provedor e confirmar as condições comerciais.
-- A integração preparada usa Asaas Checkout. Configure SP_ASAAS_MODE, SP_ASAAS_API_KEY e SP_ASAAS_WEBHOOK_TOKEN como segredos da Edge Function. Use modo sandbox em ambiente separado antes de produção.
-- No Asaas, configure a URL HTTPS /simulou-passou/api/payments/asaas para CHECKOUT_CANCELED, CHECKOUT_EXPIRED, PAYMENT_CONFIRMED, PAYMENT_RECEIVED, PAYMENT_REFUNDED, PAYMENT_CHARGEBACK_REQUESTED e PAYMENT_CHARGEBACK_DISPUTE. Configure o token do webhook no Asaas e no servidor.
+- Aplique `cloud/checkout.sql`, `cloud/checkout-offers.sql` e `cloud/checkout-provider.sql` nessa ordem antes de publicar o gateway. Abra as vendas somente depois de confirmar o ambiente, os valores e a configuração do webhook.
+- Em produção, o Asaas Checkout reutiliza `ASAAS_API_KEY` da Logos no servidor. O webhook usa `SP_ASAAS_WEBHOOK_TOKEN`, quando presente, ou `CHECKOUT_ASAAS_WEBHOOK_TOKEN` / `ASAAS_WEBHOOK_SECRET`. A chave de produção nunca é encaminhada ao ambiente de testes.
+- No Asaas, configure um webhook próprio em `https://logosiabrasil.com/simulou-passou/api/payments/asaas` com os eventos CHECKOUT_PAID, CHECKOUT_CANCELED, CHECKOUT_EXPIRED, PAYMENT_CONFIRMED, PAYMENT_RECEIVED, PAYMENT_REFUNDED, PAYMENT_CHARGEBACK_REQUESTED e PAYMENT_CHARGEBACK_DISPUTE. O servidor verifica o token, consulta o estado do pagamento no Asaas e confere o valor do pedido antes de liberar acesso.
 - A escolha da trilha é o ponto de partida. R$ 29,90 libera o módulo selecionado, e R$ 49,90 libera todos os módulos. A migração adicional está em `cloud/checkout-offers.sql`. A página de retorno acompanha o estado do pedido e não concede acesso por si.
 - A recuperação usa o redirecionamento HTTPS exato do módulo no Supabase Auth. Confirme a entrega real do e-mail em uma caixa de teste autorizada antes de abrir as vendas.
