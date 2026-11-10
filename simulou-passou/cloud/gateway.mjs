@@ -110,7 +110,7 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
       }
       if(path.startsWith('/api/auth/'))throw fault(404,'Operação não encontrada.');
       if(!user&&path!=='/api/bootstrap')throw fault(401,'Entre na sua conta para continuar.');
-      if(path==='/api/orders'&&req.method==='POST')return finish(await checkout.create(user,body.prepId));
+      if(path==='/api/orders'&&req.method==='POST')return finish(await checkout.create(user,body.prepId,body.offer));
       if(path.startsWith('/api/orders/')||path.includes('/payment'))throw fault(404,'Operação não encontrada.');
       if(/^\/api\/admin\/access\/[^/]+$/.test(path)&&req.method==='PATCH'){
         const state=await rpc('sp_runtime_load',{p_actor:user.id});if(!state.admin)throw fault(403,'Acesso exclusivo da administração.');
@@ -118,7 +118,16 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
       }
       for(let retry=0;retry<3;retry++){
         const context=await rpc('sp_runtime_load',{p_actor:user?.id||null});
-        const paidUsers=new Set((context.orders||[]).filter(order=>order.status==='paid'&&order.prepId&&order.providerMode===checkout.mode).map(order=>order.userId));
+        const allUsers=new Set([...(context.active_users||[]),...(context.administrator_ids||[])]);
+        if(user&&(context.admin||context.entitled))allUsers.add(user.id);
+        const paidModules=new Map();
+        for(const order of context.orders||[]){
+          if(order.status!=='paid'||!order.prepId||order.providerMode!==checkout.mode)continue;
+          if(order.offer==='all'||order.offer==='legacy'||order.offer===undefined){allUsers.add(order.userId);continue;}
+          if(order.offer!=='module')continue;
+          if(!paidModules.has(order.userId))paidModules.set(order.userId,new Set());
+          paidModules.get(order.userId).add(order.prepId);
+        }
         const db=seed();for(const key of catalogKeys)db[key]=copy(context.catalog.body[key]||[]);
         db.users=[];db.orders=context.orders||[];db.sessions=[];db.recoveries=[];db.paymentEvents=[];for(const key of personal)db[key]=[];
         const records=context.members||[];
@@ -127,7 +136,7 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
         if(user){identity=db.users.find(u=>u.id===user.id);if(!identity){identity={id:user.id,name:user.user_metadata?.name||user.user_metadata?.full_name||'Participante',email:user.email,createdAt:user.created_at};db.users.push(identity);}
           identity.email=user.email;identity.role=context.admin?'master':'student';identity.demo=false;}
         let dirty=false;
-        const engine=createApp({dataFile:null,initialDb:db,identity,authorizeAccess:u=>!!u&&(paidUsers.has(u.id)||(u.id===user?.id?(context.admin||context.entitled):(context.active_users||[]).includes(u.id)||(context.administrator_ids||[]).includes(u.id))),onPersist:()=>{dirty=true;},now});
+        const engine=createApp({dataFile:null,initialDb:db,identity,authorizeAccess:(u,prepId)=>!!u&&(allUsers.has(u.id)||(prepId===undefined?paidModules.has(u.id):paidModules.get(u.id)?.has(prepId)===true)),onPersist:()=>{dirty=true;},now});
         const input=Readable.from(req.method==='GET'?[]:[JSON.stringify(body)]);
         Object.assign(input,{headers:{host:'localhost'},url:path,method:req.method});const output=new Capture();
         await engine.handler(input,output);
@@ -145,7 +154,7 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
           catch(e){if(e.code==='40001'&&retry<2)continue;throw e.code==='40001'?fault(409,'Outra aba atualizou seus dados. Tente novamente.'):e;}
         }
         let result;try{result=JSON.parse(output.body);}catch{throw fault(500,'Resposta inválida.');}
-        if(path==='/api/bootstrap'&&output.status===200){result.local=false;result.checkoutEnabled=checkout.configured&&context.checkout_enabled===true;result.production=true;}
+        if(path==='/api/bootstrap'&&output.status===200){result.local=false;result.checkoutEnabled=checkout.configured&&context.checkout_enabled===true;result.production=true;if(result.user){result.user.allModules=allUsers.has(user.id);result.user.moduleIds=[...(paidModules.get(user.id)||[])];}}
         if(path==='/api/admin'&&output.status===200){for(const member of result.users)member.manualAccess=(context.active_users||[]).includes(member.id);}
         return finish(result,output.status);
       }

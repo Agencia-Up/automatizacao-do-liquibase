@@ -61,5 +61,5 @@ A recuperação e confirmação de e-mail dependem das URLs de retorno e dos tem
 - Aplique cloud/checkout.sql uma vez antes de publicar o gateway atualizado. Mantenha checkout_enabled desativado até testar o provedor e confirmar as condições comerciais.
 - A integração preparada usa Asaas Checkout. Configure SP_ASAAS_MODE, SP_ASAAS_API_KEY e SP_ASAAS_WEBHOOK_TOKEN como segredos da Edge Function. Use modo sandbox em ambiente separado antes de produção.
 - No Asaas, configure a URL HTTPS /simulou-passou/api/payments/asaas para CHECKOUT_CANCELED, CHECKOUT_EXPIRED, PAYMENT_CONFIRMED, PAYMENT_RECEIVED, PAYMENT_REFUNDED, PAYMENT_CHARGEBACK_REQUESTED e PAYMENT_CHARGEBACK_DISPUTE. Configure o token do webhook no Asaas e no servidor.
-- A escolha da trilha é o ponto de partida. Um pagamento confirmado de R$ 29,90 libera todo o catálogo. A página de retorno acompanha o estado do pedido e não concede acesso por si.
+- A escolha da trilha é o ponto de partida. R$ 29,90 libera o módulo selecionado, e R$ 49,90 libera todos os módulos. A migração adicional está em `cloud/checkout-offers.sql`. A página de retorno acompanha o estado do pedido e não concede acesso por si.
 - A recuperação usa o redirecionamento HTTPS exato do módulo no Supabase Auth. Confirme a entrega real do e-mail em uma caixa de teste autorizada antes de abrir as vendas.

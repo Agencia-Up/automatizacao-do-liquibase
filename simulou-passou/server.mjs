@@ -8,6 +8,7 @@ import {createWorkspace} from './workspace.mjs';
 
 const ROOT=dirname(fileURLToPath(import.meta.url));
 const PRICE=2990;
+const OFFERS={module:PRICE,all:4990};
 const fail=(code,message)=>{throw Object.assign(new Error(message),{code});};
 const text=(v,max=10000)=>String(v??'').trim().slice(0,max);
 const requireText=(v,label,max=200)=>{const s=text(v,max);if(!s)fail(400,`Preencha ${label}.`);return s;};
@@ -23,14 +24,14 @@ export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.
   let db=initialDb??(dataFile&&existsSync(dataFile)?JSON.parse(readFileSync(dataFile,'utf8')):seed());
   const persist=()=>{onPersist?.();if(dataFile){mkdirSync(dirname(dataFile),{recursive:true});writeFileSync(`${dataFile}.tmp`,JSON.stringify(db,null,2));renameSync(`${dataFile}.tmp`,dataFile);}};
   const stamp=()=>new Date(now()).toISOString();
-  const access=u=>authorizeAccess?authorizeAccess(u):!!u&&(u.role==='master'||u.localAccess===true||db.orders.some(o=>o.userId===u.id&&o.status==='paid'));
+  const access=(u,prepId)=>authorizeAccess?authorizeAccess(u,prepId):!!u&&(u.role==='master'||u.localAccess===true||db.orders.some(o=>o.userId===u.id&&o.status==='paid'));
   const publicQuiz=q=>{const qs=q.questionIds.map(id=>db.questions.find(x=>x.id===id)).filter(Boolean);return {...q,questionIds:undefined,count:qs.length,objectiveCount:qs.filter(x=>x.type==='objective').length,essayCount:qs.filter(x=>x.type==='essay').length,totalPoints:qs.reduce((n,x)=>n+x.points,0),optionCounts:[...new Set(qs.filter(x=>x.type==='objective').map(x=>x.options.length))]};};
   const sessionUser=req=>{if(identity!==undefined)return identity;const cookie=req.headers.cookie||'';const sid=cookie.split(';').map(x=>x.trim()).find(x=>x.startsWith('logos_local='))?.slice(12);const s=db.sessions.find(x=>x.token===sid&&x.expires>now());return s?db.users.find(x=>x.id===s.userId):null;};
   const needUser=req=>sessionUser(req)||fail(401,'Entre na sua conta para continuar.');
   const needMaster=req=>{const u=needUser(req);if(u.role!=='master')fail(403,'Esta área é exclusiva da administração local.');return u;};
-  const needAccess=req=>{const u=needUser(req);if(!access(u))fail(403,'Seu acesso ainda não está liberado. Conclua a simulação de compra.');return u;};
+  const needAccess=(req,prepId)=>{const u=needUser(req);if(!access(u,prepId))fail(403,prepId?'Este módulo ainda não está liberado para sua conta.':'Seu acesso ainda não está liberado.');return u;};
   const startSession=(res,u)=>{const token=randomBytes(32).toString('hex');db.sessions.push({token,userId:u.id,expires:now()+7*86400000});res.setHeader('Set-Cookie',`logos_local=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800`);persist();return {...safeUser(u),hasAccess:access(u)};};
-  const ownAttempt=(req,id)=>{const u=needAccess(req),a=db.attempts.find(x=>x.id===id&&x.userId===u.id);return a||fail(404,'Tentativa não encontrada.');};
+  const ownAttempt=(req,id)=>{const u=needAccess(req),a=db.attempts.find(x=>x.id===id&&x.userId===u.id);if(!a)fail(404,'Tentativa não encontrada.');needAccess(req,a.prepId);return a;};
   function score(a) {
     const objs=a.questions.filter(q=>q.type==='objective');let correct=0,wrong=0,blank=0,points=0,pending=0;
     for(const q of a.questions){const answer=a.answers[q.id];if(q.type==='objective'){if(answer===undefined||answer==='')blank++;else if(answer===q.correct){correct++;points+=q.points;}else wrong++;}else if(text(answer)){if(a.grades[q.id])points+=a.grades[q.id].points;else pending++;}}
@@ -72,7 +73,7 @@ export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.
       const workspaceResult=workspace(req,path,method,b);
       if(workspaceResult)result=workspaceResult.data;
       else if(path==='/api/bootstrap'&&method==='GET'){
-        const u=sessionUser(req);result={local:true,price:PRICE,user:u?{...safeUser(u),hasAccess:access(u)}:null,preparations:db.preparations,quizzes:db.quizzes.filter(q=>q.status==='published'&&db.preparations.some(p=>p.id===q.prepId&&p.status==='published')).map(publicQuiz),materials:db.materials.filter(m=>m.status==='published'&&db.preparations.some(p=>p.id===m.prepId&&p.status==='published')).map(({body,...m})=>m),completed:u?db.completed.filter(x=>x.userId===u.id):[],attempts:u?db.attempts.filter(a=>a.userId===u.id).map(a=>{viewAttempt(a);const {questions,answers,flags,grades,tools,...summary}=a;return summary;}):[]};
+        const u=sessionUser(req);result={local:true,price:PRICE,offers:OFFERS,user:u?{...safeUser(u),hasAccess:access(u)}:null,preparations:db.preparations,quizzes:db.quizzes.filter(q=>q.status==='published'&&db.preparations.some(p=>p.id===q.prepId&&p.status==='published')).map(publicQuiz),materials:db.materials.filter(m=>m.status==='published'&&db.preparations.some(p=>p.id===m.prepId&&p.status==='published')).map(({body,...m})=>m),completed:u?db.completed.filter(x=>x.userId===u.id):[],attempts:u?db.attempts.filter(a=>a.userId===u.id&&access(u,a.prepId)).map(a=>{viewAttempt(a);const {questions,answers,flags,grades,tools,...summary}=a;return summary;}):[]};
       } else if(path==='/api/auth/register'&&method==='POST'){
         const email=text(b.email,254).toLowerCase(),name=requireText(b.name,'seu nome',100),password=String(b.password||'');
         if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))fail(400,'Informe um e-mail válido.');if(password.length<8||password.length>128)fail(400,'Use uma senha com 8 a 128 caracteres.');if(db.users.some(u=>u.email===email))fail(409,'Este e-mail já tem uma conta. Entre para continuar.');
@@ -102,11 +103,11 @@ export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.
         const eventId=requireText(b.eventId,'o identificador do evento',100);if(!['pending','paid','declined'].includes(b.status))fail(400,'Situação inválida.');
         if(!db.paymentEvents.some(e=>e.id===eventId&&e.orderId===o.id)){db.paymentEvents.push({id:eventId,orderId:o.id,status:b.status});if(o.status!=='paid')o.status=b.status;o.updatedAt=stamp();persist();}result={...o,hasAccess:access(u)};
       } else if(/^\/api\/materials\/[^/]+$/.test(path)&&method==='GET'){
-        needAccess(req);const m=db.materials.find(m=>m.id===path.split('/')[3]&&m.status==='published'&&db.preparations.some(p=>p.id===m.prepId&&p.status==='published'));result=m||fail(404,'Material não disponível.');
+        needAccess(req);const m=db.materials.find(m=>m.id===path.split('/')[3]&&m.status==='published'&&db.preparations.some(p=>p.id===m.prepId&&p.status==='published'));if(!m)fail(404,'Material não disponível.');needAccess(req,m.prepId);result=m;
       } else if(/^\/api\/materials\/[^/]+\/complete$/.test(path)&&method==='POST'){
-        const u=needAccess(req),id=path.split('/')[3];const m=db.materials.find(m=>m.id===id&&m.status==='published'&&db.preparations.some(p=>p.id===m.prepId&&p.status==='published'));if(!m)fail(404,'Material não disponível.');db.completed=db.completed.filter(x=>!(x.userId===u.id&&x.materialId===id));if(b.completed)db.completed.push({userId:u.id,materialId:id,at:stamp()});persist();result={ok:true};
+        const u=needAccess(req),id=path.split('/')[3];const m=db.materials.find(m=>m.id===id&&m.status==='published'&&db.preparations.some(p=>p.id===m.prepId&&p.status==='published'));if(!m)fail(404,'Material não disponível.');needAccess(req,m.prepId);db.completed=db.completed.filter(x=>!(x.userId===u.id&&x.materialId===id));if(b.completed)db.completed.push({userId:u.id,materialId:id,at:stamp()});persist();result={ok:true};
       } else if(path==='/api/attempts'&&method==='POST'){
-        const u=needAccess(req),q=db.quizzes.find(q=>q.id===b.quizId&&q.status==='published'&&db.preparations.some(p=>p.id===q.prepId&&p.status==='published'));if(!q)fail(404,'Simulado não disponível.');
+        const u=needAccess(req),q=db.quizzes.find(q=>q.id===b.quizId&&q.status==='published'&&db.preparations.some(p=>p.id===q.prepId&&p.status==='published'));if(!q)fail(404,'Simulado não disponível.');needAccess(req,q.prepId);
         const previous=db.attempts.find(a=>a.userId===u.id&&a.quizId===q.id&&a.status==='in_progress');if(previous){viewAttempt(previous);if(previous.status==='in_progress'){result=viewAttempt(previous);}}
         if(!result){if(q.maxAttempts&&u.role!=='master'&&db.attempts.filter(a=>a.userId===u.id&&a.quizId===q.id).length>=q.maxAttempts)fail(409,'Você atingiu o limite de tentativas deste simulado.');const a={id:uid(),userId:u.id,quizId:q.id,quizName:q.name,prepId:q.prepId,isTest:u.role==='master',status:'in_progress',startedAt:stamp(),updatedAt:stamp(),deadline:q.durationMinutes?new Date(now()+q.durationMinutes*60000).toISOString():null,rules:{durationMinutes:q.durationMinutes,passPercent:q.passPercent,review:q.review,maxAttempts:q.maxAttempts,calculator:q.calculator===true},questions:clone(q.questionIds.map(id=>db.questions.find(x=>x.id===id))),answers:{},flags:[],grades:{}};db.attempts.push(a);persist();result=viewAttempt(a);}
       } else if(/^\/api\/attempts\/[^/]+$/.test(path)&&method==='GET'){
