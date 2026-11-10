@@ -13,18 +13,70 @@ export function cloudAuthPage(kind,{bar,brand,field,icon,hasSession}){
     : `<p>${description}</p><form data-form="${register?'register':recover?'recover':reset?'reset':'login'}">${fields}<div class="form-error" role="alert"></div><button class="btn full" type="submit">${submit} ${icon('arrow',15)}</button></form>`;
   return `${bar()}<main id="main" class="auth-page"><aside class="auth-story">${brand()}<div><div class="eyebrow" style="color:#cfb17b">Simulou Passou</div><h1>Pratique no seu ritmo.</h1><p>Faça simulados por certificação, revise o gabarito e retome de onde parou.</p></div><p class="small">Simulou Passou · Logos IA</p></aside><section class="auth-panel"><div class="auth-card"><a class="auth-back" href="#/">${icon('left',15)} Página inicial</a><h1>${title}</h1>${form}<div id="recovery-result" aria-live="polite"></div><div class="auth-links">${recover||reset?'<a href="#/entrar">Voltar ao login</a>':register?'<span>Já tem uma conta?</span><a href="#/entrar">Entrar</a>':'<a href="#/recuperar">Esqueci minha senha</a><a href="#/cadastro">Criar conta</a>'}</div></div></section></main>`;
 }
-export function planComparison({prices,moduleCount,actions,money,icon,selectedOffer}){
+const shortTrackName=track=>track.name.replace(/^PQO · /,'');
+export const planModuleField=(tracks,selected,select)=>select('prep','Qual módulo?',tracks.map(track=>[
+  track.id,track.id==='pqo-cadastro'?'Cadastro':shortTrackName(track),
+]),selected.id);
+
+function planContents(data,tracks,selected,backToPackage,{E,icon}){
+  const catalog=tracks.map(track=>({
+    ...track,
+    quizzes:data.quizzes.filter(quiz=>quiz.prepId===track.id),
+    materials:data.materials.filter(material=>material.prepId===track.id),
+  }));
+  if(!catalog.length)return '';
+  const contents=track=>{
+    const quizzes=track.quizzes.map(quiz=>{
+      const details=[quiz.count!=null?`${quiz.count} questões`:'',quiz.durationMinutes?`${quiz.durationMinutes} min`:''].filter(Boolean).join(' · ');
+      return `<li>${icon('list',16)}<div><span>${E(quiz.name)}</span>${details?`<small>${E(details)}</small>`:''}</div></li>`;
+    });
+    const materials=track.materials.map(material=>`<li>${icon('book',16)}<div><span>${E(material.title)}</span><small>Material de apoio</small></div></li>`);
+    const items=[...quizzes,...materials];
+    return items.length?`<ul class="pricing-items">${items.join('')}</ul>`:'<p class="small muted">Conteúdo a publicar.</p>';
+  };
+  const quizCount=catalog.reduce((total,track)=>total+track.quizzes.length,0);
+  return `<section class="pricing-catalog" aria-labelledby="pricing-catalog-title">
+    <header class="pricing-catalog-heading">
+      <div class="eyebrow">Simulados e materiais</div>
+      <h2 id="pricing-catalog-title">Veja o que você vai acessar</h2>
+    </header>
+    <section id="conteudo-individual" class="pricing-catalog-individual">
+      <h3>Conteúdo do plano individual</h3>
+      <div aria-live="polite">
+        ${catalog.map(track=>`<div class="pricing-track-preview" data-plan-module="${E(track.id)}"${track.id===selected.id?'':' hidden'}>
+          <h4>${E(shortTrackName(track))}</h4>
+          ${contents(track)}
+        </div>`).join('')}
+      </div>
+    </section>
+    <section id="conteudo-pacote" class="pricing-catalog-bundle">
+      <div class="pricing-bundle-heading">
+        <div class="eyebrow">Pacote completo</div>
+        <h3>Todos os simulados e materiais</h3>
+        <p>${catalog.length} ${catalog.length===1?'trilha':'trilhas'} · ${quizCount} ${quizCount===1?'simulado':'simulados'}. Confira o conteúdo de cada trilha.</p>
+      </div>
+      <ul class="pricing-catalog-grid">${catalog.map(track=>`<li class="pricing-track">
+        <h4>${E(shortTrackName(track))}</h4>
+        ${contents(track)}
+      </li>`).join('')}</ul>
+      ${backToPackage}
+    </section>
+  </section>`;
+}
+
+export function planComparison({data,tracks,selected,prices,actions,money,icon,E,selectedOffer,backToPackage}){
   const plans=[
     {id:'module',label:'Individual',title:'Um módulo',scope:'Simulados e materiais da trilha escolhida.'},
-    {id:'all',label:'Pacote completo',title:'Todos os módulos',scope:moduleCount>1?'Simulados e materiais das '+moduleCount+' trilhas.':'Simulados e materiais de todo o catálogo.'},
+    {id:'all',label:'Pacote completo',title:'Todos os módulos',scope:tracks.length>1?'Simulados e materiais das '+tracks.length+' trilhas.':'Simulados e materiais de todo o catálogo.'},
   ];
   return `<div class="pricing-comparison">
     <div class="pricing-grid">${plans.map(plan=>`
-      <article class="pricing-card pricing-card--${plan.id}${selectedOffer===plan.id?' is-selected':''}" aria-labelledby="plan-${plan.id}-title">
+      <article id="preco-${plan.id}" class="pricing-card pricing-card--${plan.id}${selectedOffer===plan.id?' is-selected':''}" aria-labelledby="plan-${plan.id}-title">
         <div class="pricing-label">${plan.label}</div>
         <h3 id="plan-${plan.id}-title">${plan.title}</h3>
         <p class="pricing-price">${money(prices[plan.id])}</p>
         <p class="pricing-scope">${plan.scope}</p>
+        ${selected?`<a class="pricing-details-link" href="#${plan.id==='all'?'conteudo-pacote':'conteudo-individual'}" data-scroll="${plan.id==='all'?'conteudo-pacote':'conteudo-individual'}">${plan.id==='all'?'Ver todas as trilhas':'Ver conteúdo do módulo'} ${icon('right',12)}</a>`:''}
         ${actions[plan.id]}
       </article>`).join('')}</div>
     <p class="pricing-payment">Pagamento único · Acesso vitalício · Pix ou cartão</p>
@@ -32,6 +84,7 @@ export function planComparison({prices,moduleCount,actions,money,icon,selectedOf
       <h3>Incluído nos dois planos</h3>
       <ul>${['Gabarito comentado','Caderno de erros','Histórico e anotações'].map(text=>`<li>${icon('check',15)} ${text}</li>`).join('')}</ul>
     </div>
+    ${selected?planContents(data,tracks,selected,backToPackage,{E,icon}):''}
   </div>`;
 }
 
@@ -48,14 +101,15 @@ export function cloudCheckout(data,{bar,brand,link,notice,E,select,money,icon},q
   const form=plan=>{
     const all=plan==='all';
     const moduleField=all?`<input type="hidden" name="prep" value="${E(selected.id)}">`
-      :select('prep','Qual módulo?',choices.map(p=>[p.id,p.id==='pqo-cadastro'?'Cadastro':p.name.replace(/^PQO · /,'')]),selected.id);
+      :planModuleField(choices,selected,select);
     const goTo=all?'#/simulados':'#/simulados?prep='+encodeURIComponent(selected.id);
     const cta=owns(plan)?link('Abrir simulados',goTo,'pricing-cta')
       :data.checkoutEnabled?`<button class="btn pricing-cta" type="submit">${all?'Comprar pacote':'Comprar módulo'}</button>`
       :'<p class="pricing-unavailable">Compra indisponível</p>';
     return `<form class="pricing-action" data-form="checkout-select"><input type="hidden" name="offer" value="${plan}">${moduleField}<div class="form-error" role="alert"></div>${cta}</form>`;
   };
-  const comparison=selected?planComparison({prices,moduleCount:choices.length,actions:{module:form('module'),all:form('all')},money,icon,selectedOffer:query.has('offer')||query.has('prep')?offer:null})
+  const backToPackage=`<a class="btn pricing-bundle-cta" href="#preco-all" data-scroll="preco-all">Voltar ao pacote de ${money(prices.all)} ${icon('arrow',15)}</a>`;
+  const comparison=selected?planComparison({data,tracks:choices,selected,prices,actions:{module:form('module'),all:form('all')},money,icon,E,backToPackage,selectedOffer:query.has('offer')||query.has('prep')?offer:null})
     :notice('O catálogo estará disponível no lançamento.');
   const unavailable=selected&&!data.checkoutEnabled?`<div class="pricing-status">${notice('Compras ainda indisponíveis. Você já pode criar sua conta.')}${!data.user?link('Criar conta','#/cadastro','secondary'):''}</div>`:'';
   return `${bar()}

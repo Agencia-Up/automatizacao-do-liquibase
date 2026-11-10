@@ -1,6 +1,6 @@
 import {examPage, readHighlight, mergeHighlight, updateExamProgress} from './exam-ui.js';
 import {calculatorMarkup, calculateFinance, createRpn} from './exam-finance.js';
-import {cloudAuthPage,cloudCheckout,cloudLegal,cloudAccount,cloudAdminOverview,cloudPayments,planComparison} from './cloud-ui.js';
+import {cloudAuthPage,cloudCheckout,cloudLegal,cloudAccount,cloudAdminOverview,cloudPayments,planComparison,planModuleField} from './cloud-ui.js';
 import {calculatePracticePlan,formatPlanTime,calculateIllustrativeScenario} from './planner.js';
 const $=(s,r=document)=>r.querySelector(s);
 const E=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -38,10 +38,13 @@ function header(){return `${bar()}<header class="public-header">${brand()}<nav c
 function landing() {
   const prices=data.offers||{module:2990,all:4990};
   const catalog=data.preparations.filter(p=>p.track==='pqo'&&p.status==='published');
-  const pricing=planComparison({prices,moduleCount:catalog.length,money,icon,actions:{
-    module:link('Escolher módulo','#/checkout?offer=module','pricing-cta pricing-action'),
+  const selected=catalog[0];
+  const moduleCheckout='#/checkout?offer=module'+(selected?'&prep='+encodeURIComponent(selected.id):'');
+  const moduleButton=link('Escolher módulo',moduleCheckout,'pricing-cta');
+  const pricing=planComparison({data,tracks:catalog,selected,prices,money,icon,E,actions:{
+    module:`<div class="pricing-action pricing-picker" data-pricing-picker>${selected?planModuleField(catalog,selected,select):''}${moduleButton}</div>`,
     all:link('Escolher pacote','#/checkout?offer=all','pricing-cta pricing-action'),
-  }});
+  },backToPackage:link('Escolher pacote · '+money(prices.all),'#/checkout?offer=all','pricing-bundle-cta')});
   const benefits = [
     ['list', 'Simulados por objetivo', 'Escolha uma prova ou certificação disponível e pratique com os simulados vinculados a ela.'],
     ['check', 'Revisão das respostas', 'Confira o que acertou, entenda os erros e retome os assuntos que merecem atenção.'],
@@ -494,6 +497,15 @@ document.addEventListener('selectionchange',()=>{
   if(selection)highlightSelection=selection;
 });
 window.addEventListener('hashchange',()=>{highlightSelection=null;closeModal();boot();});
+document.addEventListener('change',event=>{
+  const field=event.target;
+  const picker=field.closest('[data-pricing-picker]');
+  if(!picker||field.name!=='prep')return;
+  $('.pricing-cta',picker).href='#/checkout?'+new URLSearchParams({offer:'module',prep:field.value});
+  for(const preview of picker.closest('.pricing-comparison').querySelectorAll('[data-plan-module]')){
+    preview.hidden=preview.dataset.planModule!==field.value;
+  }
+});
 window.addEventListener('online',()=>{saveProblem=false;if(currentAttempt?.deadline&&examNow()>=Date.parse(currentAttempt.deadline)){nextExpiryCheck=0;tick();}else saveDraft();});
 window.addEventListener('beforeunload',()=>{if(dirty&&currentAttempt)try{localStorage.setItem(draftKey(),JSON.stringify({answers:currentAttempt.answers,flags:currentAttempt.flags,tools:currentAttempt.tools,pending:true}));}catch{}});
 async function boot(){const tokens=new URLSearchParams(location.hash.slice(1));const callbackQuery=new URLSearchParams(location.search);
