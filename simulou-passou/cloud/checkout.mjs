@@ -12,7 +12,8 @@ export function createCheckout({config,fetchImpl,origin,basePath,rpc,fault}){
   const configured=['sandbox','production'].includes(config?.mode)&&!!config.apiKey&&typeof config.webhookToken==='string'&&config.webhookToken.length>=32;
   const api=sandbox?'https://api-sandbox.asaas.com/v3':'https://api.asaas.com/v3';
   const pay=sandbox?'https://sandbox.asaas.com':'https://asaas.com';
-  const secret=Buffer.from(config?.webhookToken||'');
+  const encoder=new TextEncoder();
+  const secret=encoder.encode(config?.webhookToken||'');
   const provider=async(path,body)=>{
     const response=await fetchImpl(api+path,{
       method:body?'POST':'GET',
@@ -50,7 +51,7 @@ export function createCheckout({config,fetchImpl,origin,basePath,rpc,fault}){
 
   async function handleWebhook(req,body){
     if(!configured)throw fault(404,'Operação indisponível.');
-    const provided=Buffer.from(req.headers.get('asaas-access-token')||'');
+    const provided=encoder.encode(req.headers.get('asaas-access-token')||'');
     if(provided.length!==secret.length||!timingSafeEqual(provided,secret))throw fault(403,'Notificação não autorizada.');
     if(typeof body.id!=='string'||body.id.length<1||body.id.length>200)throw fault(400,'Evento inválido.');
     if(checkoutEvents.has(body.event)&&checkoutId(body.checkout?.id)){
