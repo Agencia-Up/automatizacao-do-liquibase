@@ -1,3 +1,6 @@
+import {createHash} from 'node:crypto';
+import {appliedCore,appliedSpecialty} from './pqo-certification-bank.mjs';
+
 const common = [
  ['SFN','Uma corretora precisa conferir quem estabelece diretrizes gerais para o mercado de valores mobiliários e quem fiscaliza as companhias abertas. Qual divisão faz sentido?','O CMN define diretrizes gerais e a CVM regula e fiscaliza o mercado de valores mobiliários.','A CVM define a meta de inflação e o CMN fiscaliza as companhias abertas.','A B3 define as diretrizes e o Banco Central fiscaliza exclusivamente as companhias abertas.','A Ancord define as diretrizes e a B3 atua como autoridade monetária.','CMN e CVM exercem papéis distintos. A CVM atua no mercado de valores mobiliários, que inclui companhias abertas e intermediários.'],
  ['Infraestrutura de mercado','Dois participantes negociam em um ambiente cuja câmara atua como contraparte central. Depois de aceitar a operação, o que muda na exposição direta das partes?','A câmara se interpõe nas obrigações aceitas e administra o risco de contraparte pelas regras do sistema.','O emissor do ativo passa a garantir a operação.','As posições de risco desaparecem após o registro.','O depositário torna-se responsável por todas as obrigações financeiras dos investidores.','A interposição da contraparte central altera a relação de contraparte. O risco remanescente exige margens, limites e outros mecanismos.'],
@@ -75,7 +78,37 @@ const tracks = [
 const commonTopics = common.slice(0, 16).map(([subject]) => subject);
 const official = 'https://edu.b3.com.br/educacao-profissional/certificacao-pqo';
 
-export function pqoCatalog(){
+// Source: Guia Por Dentro da B3, quadro de certificação (pp. 9–10).
+const specialistChapters = {
+  'Ambiente de negociação':['operacoes','comercial'],
+  'Suitability':['operacoes','comercial','compliance'],
+  'Operações ilícitas':['operacoes','comercial','compliance'],
+  'Risco corporativo e controles internos':['operacoes','comercial','compliance','risco'],
+  'Risco na câmara':['compliance','risco','back-office'],
+  'Câmara B3':['operacoes','compliance','risco','back-office','liquidacao'],
+  'Processos da Câmara B3':['back-office','liquidacao'],
+  'Central depositária':['operacoes','compliance','risco','back-office','custodia'],
+  'Processos da depositária':['back-office','custodia'],
+  'Segurança da informação':['compliance'],
+  'PRSAC':['compliance'],
+};
+const digest=value=>createHash('sha256').update(value).digest('hex');
+
+function chooseExam(id){
+  const specialist=[...Object.values(focused).flat(),...appliedSpecialty].filter(([subject])=>specialistChapters[subject]?.includes(id));
+  const coreByTopic=new Map(commonTopics.map(subject=>[subject,[...common,...appliedCore].filter(row=>row[0]===subject)]));
+  const selected=[...specialist];
+  // Interleave the common chapters to retain coverage even for the tracks
+  // with more specialist material. This is our distribution, not official weights.
+  while(selected.length<60){
+    const before=selected.length;
+    for(const pool of coreByTopic.values())if(pool.length&&selected.length<60)selected.push(pool.shift());
+    if(before===selected.length)throw new Error('Banco insuficiente para '+id);
+  }
+  return selected.map(row=>[digest(id+'|'+row[1]),row]).sort(([a],[b])=>a.localeCompare(b)).map(([,row])=>row);
+}
+
+export function pqoCatalog({practice=false}={}){
   const catalog={preparations:[],materials:[],questions:[],quizzes:[]};
   for(const [id,name,description,modules] of tracks){
     const prepId=id==='operacoes'?'pqo':'pqo-'+id;
@@ -88,7 +121,8 @@ export function pqoCatalog(){
     const cadastral=[11,12,14,15,24,25].map(index=>common[index]);
     // Keep each common chapter represented, then include all applicable specialist topics.
     const rows=training?[...cadastral,...applicable]:[...common.slice(0,16),...applicable,...common.slice(16)].slice(0,30);
-    const subjects=[...new Set([...(training?cadastral.map(([subject])=>subject):commonTopics),...applicable.map(([subject])=>subject)])];
+    const exam=training||practice?null:chooseExam(id);
+    const subjects=[...new Set(exam?exam.map(([subject])=>subject):[...(training?cadastral.map(([subject])=>subject):commonTopics),...applicable.map(([subject])=>subject)])];
     const prepName='PQO · '+name;
     catalog.preparations.push({id:prepId,name:prepName,description,status:'published',demo:false,color:'blue',track:'pqo',training,subjects});
     catalog.materials.push({id:'pqo-guia-'+id,prepId,module:'Programa da B3',title:'Guia oficial e manual do PQO',format:'link',body:official,status:'published'});
@@ -99,7 +133,17 @@ export function pqoCatalog(){
       return {id:'pqo-'+id+'-q'+(index+1),prepId,subject,type:'objective',prompt,options,correct:String(offset),explanation,points:1,status:'published'};
     });
     catalog.questions.push(...questions);
-    catalog.quizzes.push({id:'pqo-treino-'+id,prepId,name:training?'Treino de cadastro':name+' · Simulado de prática',description:training?'Questões autorais de apoio à capacitação.':'30 questões autorais para praticar os temas da certificação. O exame de certificação tem 60 questões.',questionIds:questions.map(q=>q.id),durationMinutes:training?30:90,passPercent:training?null:60,maxAttempts:null,review:true,calculator:!training,status:'published'});
+    const examQuestions=exam?.map(row=>{
+      const existing=rows.indexOf(row);
+      if(existing>=0)return questions[existing];
+      const [subject,prompt,answer,b,c,d,explanation]=row;
+      const key=digest(id+'|'+prompt);
+      const options=[answer,b,c,d].map(option=>[digest(key+'|'+option),option]).sort(([a],[b])=>a.localeCompare(b)).map(([,option])=>option);
+      const question={id:'pqo-'+id+'-cert-'+key.slice(0,16),prepId,subject,type:'objective',prompt,options,correct:String(options.indexOf(answer)),explanation,points:1,status:'published'};
+      catalog.questions.push(question);
+      return question;
+    });
+    catalog.quizzes.push({id:'pqo-treino-'+id,prepId,name:training?'Treino de cadastro':name+(exam?' · Simulado de certificação':' · Simulado de prática'),description:training?'Questões autorais de apoio à capacitação.':exam?'60 questões autorais, organizadas pelos capítulos do guia da B3. Formato de certificação: 3 horas, quatro alternativas por questão e nota mínima de 60%.':'30 questões autorais para praticar os temas da certificação. O exame de certificação tem 60 questões.',questionIds:(examQuestions||questions).map(q=>q.id),durationMinutes:training?30:exam?180:90,passPercent:training?null:60,maxAttempts:null,review:true,calculator:!training,status:'published'});
   }
   return catalog;
 }

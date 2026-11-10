@@ -39,8 +39,21 @@ export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.
     const subjects=[...new Set(objs.map(q=>q.subject))].map(subject=>{const qs=objs.filter(q=>q.subject===subject);return {subject,total:qs.length,correct:qs.filter(q=>a.answers[q.id]===q.correct).length};});
     return {correct,wrong,blank,subjects,objectiveTotal:objs.length,accuracy:objs.length?correct/objs.length*100:null,points,totalPoints,weightedPercent:totalPoints?points/totalPoints*100:0,pending,approved:pending||a.rules.passPercent===null?null:(points/totalPoints*100>=a.rules.passPercent)};
   }
-  function finish(a){if(a.status==='in_progress'){a.finishedAt=stamp();a.elapsedSeconds=Math.min(Math.round((now()-Date.parse(a.startedAt))/1000),a.rules.durationMinutes?a.rules.durationMinutes*60:Infinity);a.result=score(a);a.status=a.result.pending?'awaiting_review':'completed';a.updatedAt=stamp();persist();}return a;}
-  function viewAttempt(a){if(a.status==='in_progress'&&a.deadline&&now()>=Date.parse(a.deadline))finish(a);const canReview=a.status!=='in_progress'&&a.rules.review;return {...a,questions:a.questions.map(q=>{const {correct,explanation,rubric,...visible}=q;return canReview?{...visible,correct,explanation,...(q.type==='essay'?{rubric}:{} )}:visible;})};}
+  function finish(a){
+    if(a.status==='in_progress'){
+      const deadline=a.deadline?Date.parse(a.deadline):Infinity;
+      const endedAt=Math.min(now(),deadline);
+      a.finishedAt=new Date(endedAt).toISOString();
+      a.finishReason=endedAt===deadline?'timeout':'submitted';
+      a.elapsedSeconds=Math.max(0,Math.round((endedAt-Date.parse(a.startedAt))/1000));
+      a.result=score(a);
+      a.status=a.result.pending?'awaiting_review':'completed';
+      a.updatedAt=stamp();
+      persist();
+    }
+    return a;
+  }
+  function viewAttempt(a){if(a.status==='in_progress'&&a.deadline&&now()>=Date.parse(a.deadline))finish(a);const canReview=a.status!=='in_progress'&&a.rules.review;return {...a,serverNow:now(),questions:a.questions.map(q=>{const {correct,explanation,rubric,...visible}=q;return canReview?{...visible,correct,explanation,...(q.type==='essay'?{rubric}:{} )}:visible;})};}
   function quizInput(input,current={}){
     const q={...current,...input};q.name=requireText(q.name,'o nome do simulado');if(!db.preparations.some(p=>p.id===q.prepId))fail(400,'Escolha uma preparação válida.');
     if(!Array.isArray(q.questionIds)||!q.questionIds.length||new Set(q.questionIds).size!==q.questionIds.length||q.questionIds.some(id=>!db.questions.some(x=>x.id===id&&x.prepId===q.prepId)))fail(400,'Selecione questões diferentes da mesma preparação.');

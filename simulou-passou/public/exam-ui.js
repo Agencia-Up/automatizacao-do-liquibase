@@ -45,7 +45,7 @@ export function examPage(attempt, index, { E, icon, prepName }) {
       <div class="exam-title"><span>${E(prepName(attempt.prepId))}</span><h1>${E(attempt.quizName)}</h1></div>
       <div class="exam-clock" aria-label="${attempt.deadline ? 'Tempo restante' : 'Tempo decorrido'}">${icon('clock', 19)} <span class="timer" id="timer">—</span></div>
     </div><div class="exam-progress" role="progressbar" aria-label="Questões respondidas" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${answered}"><span style="width:${answered / total * 100}%"></span></div></header>
-    <div class="exam-body"><section class="card exam-question" aria-label="Questão atual">
+    <div class="exam-body"><section id="exam-work" class="card exam-question" aria-label="Questão atual">
       <div class="exam-question-meta"><span>QUESTÃO ${index + 1} DE ${total}</span><span>${E(q.subject)}</span><button type="button" class="exam-map-jump" data-action="exam-map">Mapa</button></div>
       <h2 class="question-prompt" tabindex="-1">${markedText(q.prompt, ranges, E)}</h2>
       <div class="exam-tools" aria-label="Ferramentas da questão">

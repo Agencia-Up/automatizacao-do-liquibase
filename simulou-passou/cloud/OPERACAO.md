@@ -56,8 +56,9 @@ A recuperação e confirmação de e-mail dependem das URLs de retorno e dos tem
 ## Atualização PQO
 
 - Prévia local: execute node preview-pqo.mjs e abra http://127.0.0.1:4188/. Use o perfil de demonstração para acessar os simulados.
-- O catálogo contém sete simulados autorais de 30 questões e um treino de Cadastro de Clientes com 12 questões. Use o manual da B3 para confirmar o formato vigente do exame oficial.
-- Gere a atualização do catálogo com node cloud/build-pqo-import.mjs. O SQL gerado adiciona registros por ID e preserva as tentativas existentes.
+- O catálogo contém sete simulados autorais no formato de certificação PQO: 60 questões de quatro alternativas, 180 minutos, nota mínima de 60% e calculadora. As áreas seguem os capítulos do guia da B3; a distribuição e as questões são próprias da plataforma. Cadastro de Clientes é um treino separado, de 12 questões em 30 minutos.
+- Gere o catálogo com `node cloud/build-pqo-import.mjs`. Em uma instalação que já tem a versão de prática, gere somente a atualização de cada módulo com `node cloud/build-pqo-import.mjs <id-da-preparação>`. A atualização troca apenas os simulados que correspondem à versão anterior conhecida; não altera tentativas existentes.
+- O prazo é aplicado pelo servidor e continua correndo fora da tela. Ao vencer, somente as respostas salvas entram na correção. O gabarito comentado aparece depois da prova, com a alternativa marcada, a correta e os assuntos prioritários para revisar.
 - Aplique `cloud/checkout.sql`, `cloud/checkout-offers.sql` e `cloud/checkout-provider.sql` nessa ordem antes de publicar o gateway. Abra as vendas somente depois de confirmar o ambiente, os valores e a configuração do webhook.
 - Em produção, o Asaas Checkout reutiliza `ASAAS_API_KEY` da Logos no servidor. O webhook usa `SP_ASAAS_WEBHOOK_TOKEN`, quando presente, ou `CHECKOUT_ASAAS_WEBHOOK_TOKEN` / `ASAAS_WEBHOOK_SECRET`. A chave de produção nunca é encaminhada ao ambiente de testes.
 - No Asaas, configure um webhook próprio em `https://logosiabrasil.com/simulou-passou/api/payments/asaas` com os eventos CHECKOUT_PAID, CHECKOUT_CANCELED, CHECKOUT_EXPIRED, PAYMENT_CONFIRMED, PAYMENT_RECEIVED, PAYMENT_REFUNDED, PAYMENT_CHARGEBACK_REQUESTED e PAYMENT_CHARGEBACK_DISPUTE. O servidor verifica o token, consulta o estado do pagamento no Asaas e confere o valor do pedido antes de liberar acesso.
