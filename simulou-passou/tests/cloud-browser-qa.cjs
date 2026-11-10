@@ -187,7 +187,59 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     await nav('cadastro');await page.getByLabel('Seu nome',{exact:true}).fill('Pessoa de teste');await page.getByLabel('E-mail',{exact:true}).fill('student@example.test');await page.getByLabel('Senha',{exact:true}).fill('Synthetic123!');await page.getByRole('button',{name:'Criar conta',exact:true}).click();await page.getByText('Confira seu e-mail para confirmar o cadastro e depois entre na sua conta.',{exact:true}).waitFor();
     await nav('entrar');await page.getByLabel('E-mail',{exact:true}).fill('student@example.test');await page.getByLabel('Senha',{exact:true}).fill('Synthetic123!');await page.getByRole('button',{name:'Entrar',exact:true}).click();await page.locator('.workspace-overview').waitFor();
     await nav('anotacoes','.notes-layout');await page.getByLabel('Título',{exact:true}).fill('Nota em nuvem');await page.getByLabel('Sua anotação',{exact:true}).fill('Persistência e isolamento verificados.');await page.getByRole('button',{name:'Salvar anotação',exact:false}).click();await page.locator('.note-list-item').waitFor();await page.reload();await page.locator('.note-list-item').waitFor();
-    await nav('checkout','.checkout-grid');assert.equal(await page.locator('[data-action="confirm-payment"]').count(),0);assert.match(await page.locator('main').innerText(),/Compras ainda indisponíveis/);assert.equal(await page.locator('select[name=prep] option').count(),8);assert.match(await page.locator('.checkout-price').innerText(),/29,90/);await page.locator('select[name=offer]').selectOption('all');await page.getByRole('heading',{name:'Todos os módulos',exact:true}).waitFor();assert.match(await page.locator('.checkout-price').innerText(),/49,90/);
+    await nav('checkout?offer=all','.pricing-grid');
+    assert.equal(await page.locator('[data-action="confirm-payment"]').count(),0);
+    assert.match(await page.locator('main').innerText(),/Compras ainda indisponíveis/);
+    assert.equal(await page.locator('select[name=prep] option').count(),8);
+    assert.equal(await page.locator('.pricing-card--all.is-selected').count(),1);
+    const verifyPlanLayout=async()=>{
+      for(const width of [320,390,1440]){
+        await page.setViewportSize({width,height:900});
+        const layout=await page.locator('.pricing-grid').evaluate(grid=>{
+          const [left,right]=[...grid.children].map(card=>card.getBoundingClientRect());
+          const prices=[...grid.querySelectorAll('.pricing-price')];
+          const buttons=[...grid.querySelectorAll('.pricing-cta')].map(el=>el.getBoundingClientRect());
+          return {sameRow:left.y===right.y&&left.right<right.left,
+            pricesAligned:prices[0].getBoundingClientRect().y===prices[1].getBoundingClientRect().y,
+            fits:document.documentElement.scrollWidth<=innerWidth+1&&prices.every(el=>el.scrollWidth<=el.clientWidth+1),
+            buttonsAligned:buttons.length===2&&buttons[0].bottom===buttons[1].bottom};
+        });
+        assert.deepEqual(layout,{sameRow:true,pricesAligned:true,fits:true,buttonsAligned:true},'Planos em '+width+' px');
+      }
+    };
+    await db.exec('update simulou_passou_private.settings set checkout_enabled=true where id;');
+    await nav('','.pricing-grid');
+    await page.reload();
+    await page.locator('.pricing-grid').waitFor();
+    await verifyPlanLayout();
+    await page.getByRole('link',{name:'Escolher pacote',exact:true}).click();
+    await page.getByRole('heading',{name:'Escolha seu acesso',exact:true,level:1}).waitFor();
+    const individual=page.getByRole('article',{name:'Um módulo',exact:true});
+    const packageAll=page.getByRole('article',{name:'Todos os módulos',exact:true});
+    assert.match(await individual.innerText(),/29,90/);
+    assert.match(await packageAll.innerText(),/49,90/);
+    await individual.getByRole('button',{name:'Comprar módulo'}).waitFor();
+    await packageAll.getByRole('button',{name:'Comprar pacote'}).waitFor();
+    await verifyPlanLayout();
+    await page.screenshot({path:path.join(__dirname,'../qa/planos-checkout-desktop.png')});
+    await page.setViewportSize({width:390,height:844});
+    await page.screenshot({path:path.join(__dirname,'../qa/planos-checkout-mobile.png')});
+    const purchaseRequests=[];
+    await page.route('**/api/orders',async route=>{
+      assert.equal(route.request().method(),'POST');
+      purchaseRequests.push(route.request().postDataJSON());
+      await route.fulfill({status:400,json:{error:'Pedido interceptado pela verificação local.'}});
+    });
+    await page.getByLabel('Qual módulo?').selectOption('pqo-risco');
+    await page.waitForURL('**/checkout?offer=module&prep=pqo-risco');
+    await individual.getByRole('button',{name:'Comprar módulo'}).click();
+    await individual.getByRole('alert').filter({hasText:'Pedido interceptado'}).waitFor();
+    await packageAll.getByRole('button',{name:'Comprar pacote'}).click();
+    await packageAll.getByRole('alert').filter({hasText:'Pedido interceptado'}).waitFor();
+    assert.deepEqual(purchaseRequests,[{prepId:'pqo-risco',offer:'module'},{prepId:'pqo-risco',offer:'all'}]);
+    assert.equal(checkoutCreates,checkoutCases.length);
+    await page.unroute('**/api/orders');
+    await db.exec('update simulou_passou_private.settings set checkout_enabled=false where id;');
     await page.evaluate(()=>document.activeElement?.blur());await nav('conta','.account-grid');assert.doesNotMatch(await page.locator('main').innerText(),/PRÉVIA LOCAL|dados locais|pagamentos são locais/);await page.locator('.app-header [data-action="menu"]').click();await page.locator('.sidebar [data-action="logout"]').click();await page.locator('.public-header').waitFor();
     await nav('entrar');await page.getByLabel('E-mail',{exact:true}).fill('admin@example.test');await page.getByLabel('Senha',{exact:true}).fill('Synthetic123!');await page.getByRole('button',{name:'Entrar',exact:true}).click();await page.locator('.workspace-overview').waitFor();
     await nav('simulado/pqo-treino-operacoes');

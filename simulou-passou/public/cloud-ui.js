@@ -13,21 +13,59 @@ export function cloudAuthPage(kind,{bar,brand,field,icon,hasSession}){
     : `<p>${description}</p><form data-form="${register?'register':recover?'recover':reset?'reset':'login'}">${fields}<div class="form-error" role="alert"></div><button class="btn full" type="submit">${submit} ${icon('arrow',15)}</button></form>`;
   return `${bar()}<main id="main" class="auth-page"><aside class="auth-story">${brand()}<div><div class="eyebrow" style="color:#cfb17b">Simulou Passou</div><h1>Pratique no seu ritmo.</h1><p>Faça simulados por certificação, revise o gabarito e retome de onde parou.</p></div><p class="small">Simulou Passou · Logos IA</p></aside><section class="auth-panel"><div class="auth-card"><a class="auth-back" href="#/">${icon('left',15)} Página inicial</a><h1>${title}</h1>${form}<div id="recovery-result" aria-live="polite"></div><div class="auth-links">${recover||reset?'<a href="#/entrar">Voltar ao login</a>':register?'<span>Já tem uma conta?</span><a href="#/entrar">Entrar</a>':'<a href="#/recuperar">Esqueci minha senha</a><a href="#/cadastro">Criar conta</a>'}</div></div></section></main>`;
 }
-export function cloudCheckout(data,{bar,brand,link,notice,E,select,money},query){
+export function planComparison({prices,moduleCount,actions,money,icon,selectedOffer}){
+  const plans=[
+    {id:'module',label:'Individual',title:'Um módulo',scope:'Simulados e materiais da trilha escolhida.'},
+    {id:'all',label:'Pacote completo',title:'Todos os módulos',scope:moduleCount>1?'Simulados e materiais das '+moduleCount+' trilhas.':'Simulados e materiais de todo o catálogo.'},
+  ];
+  return `<div class="pricing-comparison">
+    <div class="pricing-grid">${plans.map(plan=>`
+      <article class="pricing-card pricing-card--${plan.id}${selectedOffer===plan.id?' is-selected':''}" aria-labelledby="plan-${plan.id}-title">
+        <div class="pricing-label">${plan.label}</div>
+        <h3 id="plan-${plan.id}-title">${plan.title}</h3>
+        <p class="pricing-price">${money(prices[plan.id])}</p>
+        <p class="pricing-scope">${plan.scope}</p>
+        ${actions[plan.id]}
+      </article>`).join('')}</div>
+    <p class="pricing-payment">Pagamento único · Acesso vitalício · Pix ou cartão</p>
+    <div class="pricing-benefits">
+      <h3>Incluído nos dois planos</h3>
+      <ul>${['Gabarito comentado','Caderno de erros','Histórico e anotações'].map(text=>`<li>${icon('check',15)} ${text}</li>`).join('')}</ul>
+    </div>
+  </div>`;
+}
+
+export function cloudCheckout(data,{bar,brand,link,notice,E,select,money,icon},query){
   const choices=data.preparations.filter(p=>p.track==='pqo'&&p.status==='published');
   const selected=choices.find(p=>p.id===query.get('prep'))||choices[0];
   const offer=query.get('offer')==='all'?'all':'module';
-  const all=offer==='all';
   const prices=data.offers||{module:2990,all:4990};
-  const owned=!!data.user&&(data.user.allModules===true||(!all&&data.user.moduleIds?.includes(selected?.id)===true)||(data.user.allModules===undefined&&data.user.hasAccess));
+  const owns=plan=>!!data.user&&(data.user.allModules===true
+    ||(plan==='module'&&data.user.moduleIds?.includes(selected?.id)===true)
+    ||(data.user.allModules===undefined&&data.user.hasAccess));
   const feedback=query.get('pagamento');
-  const options=select('offer','Tipo de acesso',[['module','Um módulo · '+money(prices.module)],['all','Todos os módulos · '+money(prices.all)]],offer);
-  const moduleField=all?`<input type="hidden" name="prep" value="${E(selected?.id)}">`:select('prep','Qual módulo você quer comprar?',choices.map(p=>[p.id,p.name]),selected?.id);
-  const goTo=all?'#/simulados':'#/simulados?prep='+encodeURIComponent(selected?.id||'');
-  const cta=owned?link('Abrir meus simulados',goTo):data.checkoutEnabled?'<button class="btn full" type="submit">Continuar para o pagamento</button>':notice('Compras ainda indisponíveis. Você já pode criar sua conta.');
-  const form=selected?`<form data-form="checkout-select">${options}${moduleField}<div class="form-error" role="alert"></div>${cta}</form>`:notice('O catálogo estará disponível no lançamento.');
-  const status=feedback==='retorno'?notice(owned?'Pagamento confirmado. Seu acesso está liberado.':'Aguardando a confirmação do pagamento. Atualize esta página para acompanhar.'):feedback==='cancelado'?notice('A sessão de pagamento foi encerrada. Você pode iniciar outra quando quiser.'):'';
-  return `${bar()}<header class="public-header"><div class="container nav-row">${brand()}${link(data.user?'Meu painel':'Entrar',data.user?'#/inicio':'#/entrar','secondary compact')}</div></header><main id="main" class="container page"><div class="page-heading"><div class="eyebrow">Simulou Passou</div><h1>Escolha seu acesso</h1><p>Compre um módulo ou libere todos os módulos do catálogo.</p></div><div class="checkout-grid"><section class="card">${status}${form}${!data.user&&!data.checkoutEnabled?link('Criar conta','#/cadastro','secondary'):''}</section><aside class="checkout-summary"><div class="eyebrow" style="color:#d2b77e">Pagamento único</div><h3>${all?'Todos os módulos':E(selected?.name||'Um módulo')}</h3><div class="checkout-price">${money(prices[offer])}</div><p>Acesso vitalício · Pix ou cartão.</p><ul class="check-list"><li>${all?'Simulados e materiais de todos os módulos':'Simulados e materiais do módulo escolhido'}</li><li>Gabarito comentado e caderno de erros</li><li>Histórico e anotações pessoais</li></ul></aside></div></main>`;
+  const status=feedback==='retorno'?notice(owns(offer)?'Pagamento confirmado. Seu acesso está liberado.':'Aguardando a confirmação do pagamento. Atualize esta página para acompanhar.'):feedback==='cancelado'?notice('A sessão de pagamento foi encerrada. Você pode iniciar outra quando quiser.'):'';
+  const form=plan=>{
+    const all=plan==='all';
+    const moduleField=all?`<input type="hidden" name="prep" value="${E(selected.id)}">`
+      :select('prep','Qual módulo?',choices.map(p=>[p.id,p.id==='pqo-cadastro'?'Cadastro':p.name.replace(/^PQO · /,'')]),selected.id);
+    const goTo=all?'#/simulados':'#/simulados?prep='+encodeURIComponent(selected.id);
+    const cta=owns(plan)?link('Abrir simulados',goTo,'pricing-cta')
+      :data.checkoutEnabled?`<button class="btn pricing-cta" type="submit">${all?'Comprar pacote':'Comprar módulo'}</button>`
+      :'<p class="pricing-unavailable">Compra indisponível</p>';
+    return `<form class="pricing-action" data-form="checkout-select"><input type="hidden" name="offer" value="${plan}">${moduleField}<div class="form-error" role="alert"></div>${cta}</form>`;
+  };
+  const comparison=selected?planComparison({prices,moduleCount:choices.length,actions:{module:form('module'),all:form('all')},money,icon,selectedOffer:query.has('offer')||query.has('prep')?offer:null})
+    :notice('O catálogo estará disponível no lançamento.');
+  const unavailable=selected&&!data.checkoutEnabled?`<div class="pricing-status">${notice('Compras ainda indisponíveis. Você já pode criar sua conta.')}${!data.user?link('Criar conta','#/cadastro','secondary'):''}</div>`:'';
+  return `${bar()}
+    <header class="public-header">${brand()}${link(data.user?'Meu painel':'Entrar',data.user?'#/inicio':'#/entrar','secondary compact')}</header>
+    <main id="main" class="public-wrap pricing-page">
+      <div class="pricing-heading"><div class="eyebrow">Simulou Passou</div><h1>Escolha seu acesso</h1><p>Compare os planos e escolha quais simulados quer liberar.</p></div>
+      ${status?`<div class="pricing-status">${status}</div>`:''}
+      ${comparison}
+      ${unavailable}
+    </main>`;
 }
 export function cloudLegal(kind){
   return kind==='privacy'?`<p>O Simulou Passou é um módulo da Logos IA. O cadastro utiliza seu nome e e-mail para identificar a conta e enviar mensagens de confirmação e recuperação de acesso.</p><p>Anotações, planejamento, registros de foco e tentativas são salvos na sua conta. O navegador também mantém rascunhos temporários para recuperar alterações durante uma interrupção de conexão. Administradores do módulo gerenciam acessos, conteúdo e correções de provas; as telas administrativas não exibem suas notas pessoais.</p><p>A infraestrutura utiliza Supabase para autenticação e armazenamento e a hospedagem da Logos para servir a aplicação. A senha é processada pelo serviço de autenticação; ela não aparece nas telas de administração.</p><p>Para tratar de acesso, correção ou exclusão de dados, utilize os canais oficiais da Logos IA. O aviso completo com identificação do responsável e canal específico será apresentado antes da abertura de vendas.</p>`:`<p>Esta versão está em pré-lançamento. O cadastro e as ferramentas pessoais estão disponíveis; não há cobrança automática ou compra habilitada.</p><p>O catálogo atual contém exemplos demonstrativos. Ele não representa uma preparação completa, um vínculo com certificadoras ou garantia de aprovação. As porcentagens hipotéticas da calculadora são inventadas para demonstração e não estimam sua chance real no exame.</p><p>Os simulados podem ter regras próprias de duração, revisão e limite de tentativas. Consulte essas regras antes de iniciar. Os termos comerciais definitivos, suporte e condições de cancelamento serão disponibilizados antes da abertura de vendas.</p>`;
