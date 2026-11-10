@@ -1,0 +1,85 @@
+.password-field{display:flex;position:relative}
+.password-field input{width:100%;padding-right:86px}
+.password-toggle{position:absolute;right:3px;top:3px;bottom:3px;min-width:76px;border:0;background:transparent;color:#145e5d;font:inherit;font-size:.82rem;font-weight:700;cursor:pointer}
+.password-toggle:focus-visible,.exam-tool:focus-visible,.exam-strike:focus-visible,.exam-clear:focus-visible{outline:2px solid #08786e;outline-offset:2px}
+.exam-shell{min-height:100vh;background:#f3f5ef;color:#112d35}
+.exam-header{position:sticky;top:0;z-index:5;background:#112d35;color:#fff}
+.exam-header-inner{max-width:1220px;margin:auto;padding:14px 24px;display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:24px}
+.exam-exit{display:inline-flex;align-items:center;gap:5px;min-height:44px;color:#f3e1bb;font-size:.84rem}
+.exam-title{min-width:0}
+.exam-title span{display:block;color:#ddc792;font-size:.69rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em}
+.exam-title h1{font:600 clamp(1.05rem,3vw,1.55rem)/1.25 system-ui;margin:4px 0 0;color:#fff}
+.exam-clock{display:flex;align-items:center;gap:8px;background:#203e45;border-radius:8px;padding:9px 12px}
+.exam-clock .timer{color:#fff;margin:0;font:700 1.05rem/1.1 system-ui;font-variant-numeric:tabular-nums;white-space:nowrap}
+.exam-progress{height:4px;background:#355258}
+.exam-progress span{height:100%;display:block;background:#dfbc75;transition:width .18s ease}
+.exam-body{max-width:1220px;margin:0 auto;padding:28px 24px 60px;display:grid;grid-template-columns:minmax(0,1fr) minmax(245px,310px);gap:20px;align-items:start}
+.exam-body .card{min-width:0}
+.exam-question-meta,.exam-map-header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.exam-question-meta{font-size:.73rem;font-weight:700;color:#476361;letter-spacing:.035em}
+.exam-question-meta span:first-child{color:#0d6661}
+.exam-question .question-prompt{font-size:clamp(1.18rem,3vw,1.65rem);line-height:1.44;margin:18px 0 12px;overflow-wrap:anywhere;user-select:text}
+.exam-question mark{color:inherit;background:#ffe79d;border-radius:2px}
+.exam-tools{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 18px}
+.exam-tool,.exam-clear{display:inline-flex;align-items:center;gap:5px;min-height:44px;padding:6px 10px;border:1px solid #d6dfd9;border-radius:8px;background:#fff;color:#335755;font:600 .8rem/1.25 system-ui;cursor:pointer}
+.exam-tool.is-active{background:#fcf0d2;border-color:#d9b56f;color:#5e400f}
+.exam-option{position:relative;min-width:0}
+.exam-option .option{min-height:54px;padding-right:54px}
+.exam-option.is-crossed .option-copy{text-decoration:line-through;color:#576865}
+.exam-option.is-crossed .option{background:#f4f6f3;border-style:dashed}
+.exam-strike{position:absolute;right:4px;top:50%;transform:translateY(-50%);min-width:44px;min-height:44px;display:grid;place-items:center;border:0;border-radius:7px;background:transparent;color:#5d716d;cursor:pointer}
+.exam-strike:hover,.exam-strike[aria-pressed=true]{color:#72392e;background:#f5e9e3}
+.exam-clear{margin-top:8px;border:0;text-decoration:underline}
+.exam-clear[hidden]{display:none}
+.exam-nav{display:flex;justify-content:space-between;gap:8px;margin-top:22px;border-top:1px solid #e5eae4;padding-top:16px}
+.exam-nav .btn{min-height:44px}
+.exam-map-card{position:sticky;top:105px}
+.exam-map-header h2{font-size:1.1rem;margin:0}
+.exam-map-header span,.exam-map-legend{font-size:.78rem;color:#48615d}
+.exam-map-card .question-map{display:grid;grid-template-columns:repeat(auto-fill,minmax(34px,1fr));gap:6px;margin:16px 0}
+.exam-map-card .question-map button{min-height:40px}
+.exam-map-card .save-state{margin:12px 0}
+.exam-finance{display:grid;gap:12px}
+.exam-finance-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.exam-finance label{display:grid;gap:5px;font-size:.85rem;font-weight:600}
+.exam-finance input:not([type=checkbox]),.exam-finance select{width:100%;min-width:0;border:1px solid #bccbc3;border-radius:8px;padding:9px;font:inherit}
+.exam-finance label.exam-finance-mode{display:flex;align-items:center;gap:8px}
+.exam-finance output{font-size:1.4rem;font-weight:700;color:#155957}
+.rpn{margin-bottom:16px;padding:12px;background:#edf2eb;border-radius:9px}
+.rpn summary{cursor:pointer;font-weight:700}
+.rpn p{font-size:.84rem;margin:8px 0}
+.rpn output{display:block;text-align:right;background:#112d35;color:#fff;padding:7px 10px;border-radius:5px;margin-bottom:5px;font-variant-numeric:tabular-nums}
+.rpn div{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px}
+.rpn button{min-height:42px;border:1px solid #bccbc3;border-radius:5px;background:white;color:#112d35;font:700 .78rem system-ui;cursor:pointer}
+@media(max-width:760px){
+  .exam-header-inner{padding:8px 10px;gap:9px}
+  .exam-exit span{display:none}
+  .exam-clock{padding:8px 7px;gap:4px}
+  .exam-clock .timer{font-size:.89rem}
+  .exam-title span{font-size:.6rem}
+  .exam-body{padding:12px 10px 35px;grid-template-columns:minmax(0,1fr);gap:12px}
+  .exam-body .card{padding:14px}
+  .exam-map-card{position:static}
+  .exam-map-card .question-map{grid-template-columns:repeat(auto-fill,minmax(43px,1fr))}
+  .exam-map-card .question-map button{min-height:44px}
+  .exam-nav .btn{padding:8px 10px;font-size:.82rem}
+  .password-field input{font-size:16px}
+}
+
+.exam-map-jump{display:none}
+.catalog-choice{display:flex;align-items:center;justify-content:space-between;gap:10px;color:inherit}
+.catalog-choice h3,.catalog-choice p{margin:0}
+.catalog-choice p{margin-top:6px}
+.catalog-choice:hover{border-color:#a98a55}
+.catalog-choice svg{flex:none}
+.syllabus{margin:18px 0}
+.syllabus summary{cursor:pointer;font-weight:700}
+.syllabus ul{columns:2;padding-left:20px}
+.syllabus li{margin:5px 0;break-inside:avoid}
+.exam-review-controls{padding:4px 0 14px}
+.exam-review-controls label{display:flex;align-items:center;gap:8px;font-weight:600}
+.exam-map-card{scroll-margin-top:100px}
+@media(max-width:760px){
+  .syllabus ul{columns:1}
+  .exam-map-jump{display:inline-flex;align-items:center;min-height:44px;border:0;border-radius:8px;background:#e9f0e9;color:#0d6661;font:700 .75rem system-ui;padding:0 10px;cursor:pointer}
+}

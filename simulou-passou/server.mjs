@@ -47,7 +47,7 @@ export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.
     if(q.durationMinutes!==null&&(!Number.isInteger(q.durationMinutes)||q.durationMinutes<1||q.durationMinutes>1440))fail(400,'Duração inválida.');
     if(q.passPercent!==null&&(!Number.isFinite(q.passPercent)||q.passPercent<0||q.passPercent>100))fail(400,'Critério de aprovação inválido.');
     if(q.maxAttempts!==null&&(!Number.isInteger(q.maxAttempts)||q.maxAttempts<1))fail(400,'Limite de tentativas inválido.');
-    return {id:current.id||uid(),prepId:q.prepId,name:q.name,description:text(q.description,1000),questionIds:q.questionIds,durationMinutes:q.durationMinutes,passPercent:q.passPercent,maxAttempts:q.maxAttempts,status:q.status==='published'?'published':'draft',review:q.review!==false};
+    return {id:current.id||uid(),prepId:q.prepId,name:q.name,description:text(q.description,1000),questionIds:q.questionIds,durationMinutes:q.durationMinutes,passPercent:q.passPercent,maxAttempts:q.maxAttempts,status:q.status==='published'?'published':'draft',review:q.review!==false,calculator:q.calculator===true};
   }
   const workspace=createWorkspace({db,now,stamp,persist,needUser,needAccess,access,viewAttempt});
   const handler=async(req,res)=>{
@@ -61,7 +61,7 @@ export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.
       const path=basePath?url.pathname.slice(basePath.length):url.pathname;
       if(!path.startsWith('/api/')){
         const file=path==='/'?'index.html':path.slice(1);const full=resolve(ROOT,'public',file);
-        if(!['index.html','app.js','cloud-ui.js','styles.css','mobile.css','planner.js','roteiro-conteudo.txt','modelo-prova.json'].includes(file))fail(404,'Arquivo não encontrado.');
+        if(!['index.html','app.js','cloud-ui.js','exam-ui.js','exam-finance.js','exam.css','styles.css','mobile.css','planner.js','roteiro-conteudo.txt','modelo-prova.json'].includes(file))fail(404,'Arquivo não encontrado.');
         const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.txt':'text/plain; charset=utf-8','.json':'application/json; charset=utf-8'};
         res.writeHead(200,{'Content-Type':types[extname(full)],'Cache-Control':'no-store','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"});res.end(readFileSync(full));return;
       }
@@ -72,7 +72,7 @@ export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.
       const workspaceResult=workspace(req,path,method,b);
       if(workspaceResult)result=workspaceResult.data;
       else if(path==='/api/bootstrap'&&method==='GET'){
-        const u=sessionUser(req);result={local:true,price:PRICE,user:u?{...safeUser(u),hasAccess:access(u)}:null,preparations:db.preparations,quizzes:db.quizzes.filter(q=>q.status==='published'&&db.preparations.some(p=>p.id===q.prepId&&p.status==='published')).map(publicQuiz),materials:db.materials.filter(m=>m.status==='published'&&db.preparations.some(p=>p.id===m.prepId&&p.status==='published')).map(({body,...m})=>m),completed:u?db.completed.filter(x=>x.userId===u.id):[],attempts:u?db.attempts.filter(a=>a.userId===u.id).map(a=>{viewAttempt(a);const {questions,answers,flags,grades,...summary}=a;return summary;}):[]};
+        const u=sessionUser(req);result={local:true,price:PRICE,user:u?{...safeUser(u),hasAccess:access(u)}:null,preparations:db.preparations,quizzes:db.quizzes.filter(q=>q.status==='published'&&db.preparations.some(p=>p.id===q.prepId&&p.status==='published')).map(publicQuiz),materials:db.materials.filter(m=>m.status==='published'&&db.preparations.some(p=>p.id===m.prepId&&p.status==='published')).map(({body,...m})=>m),completed:u?db.completed.filter(x=>x.userId===u.id):[],attempts:u?db.attempts.filter(a=>a.userId===u.id).map(a=>{viewAttempt(a);const {questions,answers,flags,grades,tools,...summary}=a;return summary;}):[]};
       } else if(path==='/api/auth/register'&&method==='POST'){
         const email=text(b.email,254).toLowerCase(),name=requireText(b.name,'seu nome',100),password=String(b.password||'');
         if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))fail(400,'Informe um e-mail válido.');if(password.length<8||password.length>128)fail(400,'Use uma senha com 8 a 128 caracteres.');if(db.users.some(u=>u.email===email))fail(409,'Este e-mail já tem uma conta. Entre para continuar.');
@@ -104,16 +104,33 @@ export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.
       } else if(/^\/api\/materials\/[^/]+$/.test(path)&&method==='GET'){
         needAccess(req);const m=db.materials.find(m=>m.id===path.split('/')[3]&&m.status==='published'&&db.preparations.some(p=>p.id===m.prepId&&p.status==='published'));result=m||fail(404,'Material não disponível.');
       } else if(/^\/api\/materials\/[^/]+\/complete$/.test(path)&&method==='POST'){
-        const u=needAccess(req),id=path.split('/')[3];if(!db.materials.some(m=>m.id===id&&m.status==='published'&&db.preparations.some(p=>p.id===m.prepId&&p.status==='published')))fail(404,'Material não disponível.');db.completed=db.completed.filter(x=>!(x.userId===u.id&&x.materialId===id));if(b.completed)db.completed.push({userId:u.id,materialId:id,at:stamp()});persist();result={ok:true};
+        const u=needAccess(req),id=path.split('/')[3];const m=db.materials.find(m=>m.id===id&&m.status==='published'&&db.preparations.some(p=>p.id===m.prepId&&p.status==='published'));if(!m)fail(404,'Material não disponível.');db.completed=db.completed.filter(x=>!(x.userId===u.id&&x.materialId===id));if(b.completed)db.completed.push({userId:u.id,materialId:id,at:stamp()});persist();result={ok:true};
       } else if(path==='/api/attempts'&&method==='POST'){
         const u=needAccess(req),q=db.quizzes.find(q=>q.id===b.quizId&&q.status==='published'&&db.preparations.some(p=>p.id===q.prepId&&p.status==='published'));if(!q)fail(404,'Simulado não disponível.');
         const previous=db.attempts.find(a=>a.userId===u.id&&a.quizId===q.id&&a.status==='in_progress');if(previous){viewAttempt(previous);if(previous.status==='in_progress'){result=viewAttempt(previous);}}
-        if(!result){if(q.maxAttempts&&u.role!=='master'&&db.attempts.filter(a=>a.userId===u.id&&a.quizId===q.id).length>=q.maxAttempts)fail(409,'Você atingiu o limite de tentativas deste simulado.');const a={id:uid(),userId:u.id,quizId:q.id,quizName:q.name,prepId:q.prepId,isTest:u.role==='master',status:'in_progress',startedAt:stamp(),updatedAt:stamp(),deadline:q.durationMinutes?new Date(now()+q.durationMinutes*60000).toISOString():null,rules:{durationMinutes:q.durationMinutes,passPercent:q.passPercent,review:q.review,maxAttempts:q.maxAttempts},questions:clone(q.questionIds.map(id=>db.questions.find(x=>x.id===id))),answers:{},flags:[],grades:{}};db.attempts.push(a);persist();result=viewAttempt(a);}
+        if(!result){if(q.maxAttempts&&u.role!=='master'&&db.attempts.filter(a=>a.userId===u.id&&a.quizId===q.id).length>=q.maxAttempts)fail(409,'Você atingiu o limite de tentativas deste simulado.');const a={id:uid(),userId:u.id,quizId:q.id,quizName:q.name,prepId:q.prepId,isTest:u.role==='master',status:'in_progress',startedAt:stamp(),updatedAt:stamp(),deadline:q.durationMinutes?new Date(now()+q.durationMinutes*60000).toISOString():null,rules:{durationMinutes:q.durationMinutes,passPercent:q.passPercent,review:q.review,maxAttempts:q.maxAttempts,calculator:q.calculator===true},questions:clone(q.questionIds.map(id=>db.questions.find(x=>x.id===id))),answers:{},flags:[],grades:{}};db.attempts.push(a);persist();result=viewAttempt(a);}
       } else if(/^\/api\/attempts\/[^/]+$/.test(path)&&method==='GET'){
         result=viewAttempt(ownAttempt(req,path.split('/')[3]));
       } else if(/^\/api\/attempts\/[^/]+\/save$/.test(path)&&method==='POST'){
         const a=ownAttempt(req,path.split('/')[3]);viewAttempt(a);if(a.status!=='in_progress')fail(409,'Esta tentativa já foi encerrada.');const answers={};
         for(const q of a.questions){if(b.answers&&Object.hasOwn(b.answers,q.id)){const value=text(b.answers[q.id],4000);if(q.type==='objective'&&value!==''&&!q.options.some((_,i)=>String(i)===value))fail(400,'Alternativa inválida.');answers[q.id]=value;}}
+        if(Object.hasOwn(b,'tools')){
+          const tools={};
+          for(const q of a.questions){
+            const marks=b.tools&&Object.hasOwn(b.tools,q.id)?b.tools[q.id]:null;
+            if(!marks||typeof marks!=='object')continue;
+            const crossed=q.type==='objective'&&Array.isArray(marks.crossed)?[...new Set(marks.crossed.filter(i=>Number.isInteger(i)&&i>=0&&i<q.options.length&&String(i)!==answers[q.id]))]:[];
+            const ranges=Array.isArray(marks.highlights)?marks.highlights.slice(0,24).filter(r=>Array.isArray(r)&&r.length===2&&r.every(Number.isInteger)&&r[0]>=0&&r[1]>r[0]&&r[1]<=q.prompt.length).sort((a,b)=>a[0]-b[0]):[];
+            const highlights=[];
+            for(const range of ranges){
+              const last=highlights.at(-1);
+              if(last&&range[0]<=last[1])last[1]=Math.max(last[1],range[1]);
+              else highlights.push(range.slice());
+            }
+            if(crossed.length||highlights.length)tools[q.id]={crossed,highlights};
+          }
+          a.tools=tools;
+        }
         a.answers=answers;a.flags=Array.isArray(b.flags)?[...new Set(b.flags.filter(id=>a.questions.some(q=>q.id===id)))]:[];a.updatedAt=stamp();persist();result={ok:true,updatedAt:a.updatedAt};
       } else if(/^\/api\/attempts\/[^/]+\/finish$/.test(path)&&method==='POST'){
         result=viewAttempt(finish(ownAttempt(req,path.split('/')[3])));
@@ -125,7 +142,7 @@ export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.
         needMaster(req);const a=db.attempts.find(x=>x.id===b.attemptId&&x.status!=='in_progress'),q=a?.questions.find(x=>x.id===b.questionId&&x.type==='essay');if(!q||!text(a.answers[q.id]))fail(400,'Resposta discursiva não disponível para correção.');const points=Number(b.points);if(!Number.isFinite(points)||points<0||points>q.points)fail(400,`A nota deve estar entre 0 e ${q.points}.`);a.grades[q.id]={points,feedback:requireText(b.feedback,'o feedback',3000),gradedAt:stamp()};a.result=score(a);a.status=a.result.pending?'awaiting_review':'completed';a.updatedAt=stamp();persist();result={ok:true};
       } else if(/^\/api\/admin\/(preparations|materials|questions|quizzes)(\/[^/]+)?$/.test(path)&&['POST','PATCH'].includes(method)){
         needMaster(req);const [, , ,collection,id]=path.split('/');const existing=id?db[collection].find(x=>x.id===id):null;if(id&&!existing)fail(404,'Registro não encontrado.');const input={...existing,...b};let item;
-        if(collection==='preparations'){item={id:existing?.id||uid(),name:requireText(input.name,'o nome'),description:text(input.description,2000),status:input.status==='published'?'published':'draft',demo:true,color:existing?.color||'brass'};if(existing&&item.status==='published'&&!db.materials.some(m=>m.prepId===id&&m.status==='published')&&!db.quizzes.some(q=>q.prepId===id&&q.status==='published'))fail(400,'Adicione conteúdo publicado antes de publicar a preparação.');if(!existing)item.status='draft';}
+        if(collection==='preparations'){item={id:existing?.id||uid(),name:requireText(input.name,'o nome'),description:text(input.description,2000),status:input.status==='published'?'published':'draft',demo:existing?.demo??true,color:existing?.color||'brass',track:existing?.track,training:existing?.training,subjects:existing?.subjects};if(existing&&item.status==='published'&&!db.materials.some(m=>m.prepId===id&&m.status==='published')&&!db.quizzes.some(q=>q.prepId===id&&q.status==='published'))fail(400,'Adicione conteúdo publicado antes de publicar a preparação.');if(!existing)item.status='draft';}
         if(collection==='materials'){if(!db.preparations.some(p=>p.id===input.prepId))fail(400,'Preparação inválida.');item={id:existing?.id||uid(),prepId:input.prepId,module:requireText(input.module,'o módulo'),title:requireText(input.title,'o título'),body:requireText(input.body,'o conteúdo',30000),format:input.format==='link'?'link':'text',status:input.status==='published'?'published':'draft'};if(item.format==='link'&&!/^https:\/\/[^\s]+$/.test(item.body))fail(400,'Use um link HTTPS válido.');}
         if(collection==='questions'){if(!db.preparations.some(p=>p.id===input.prepId))fail(400,'Preparação inválida.');const type=input.type==='essay'?'essay':'objective';const options=type==='objective'?(Array.isArray(input.options)?input.options.map(x=>text(x,1000)).filter(Boolean):[]):[];const points=Number(input.points);if(!Number.isFinite(points)||points<=0||points>100)fail(400,'Informe uma pontuação entre 0 e 100.');if(type==='objective'&&(options.length<2||options.length>8||!options.some((_,i)=>String(i)===String(input.correct))))fail(400,'Informe de 2 a 8 alternativas e uma resposta correta.');item={id:existing?.id||uid(),prepId:input.prepId,subject:requireText(input.subject,'o assunto'),prompt:requireText(input.prompt,'o enunciado',5000),type,options,correct:type==='objective'?String(input.correct):null,points,explanation:requireText(input.explanation,'a explicação ou resposta de referência',5000),rubric:type==='essay'?requireText(input.rubric,'o critério de correção',3000):undefined};}
         if(collection==='quizzes')item=quizInput(b,existing||{});

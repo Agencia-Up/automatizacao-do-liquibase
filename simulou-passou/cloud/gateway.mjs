@@ -1,3 +1,4 @@
+import {createCheckout} from './checkout.mjs';
 import {Readable} from 'node:stream';
 import {createApp} from '../server.mjs';
 import {seed} from '../seed.mjs';
@@ -15,7 +16,7 @@ class Capture {
   writeHead(status,headers={}){this.status=status;for(const [k,v] of Object.entries(headers))this.setHeader(k,v);this.headersSent=true;}
   end(value=''){this.body=String(value);}
 }
-export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowedOrigins,basePath='/simulou-passou',fetchImpl=fetch,now=()=>Date.now()}){
+export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowedOrigins,basePath='/simulou-passou',fetchImpl=fetch,now=()=>Date.now(),checkoutConfig}){
   if(!supabaseUrl||!serviceKey||!publishableKey||!allowedOrigins?.length)throw new Error('Missing server configuration');
   const origins=new Set(allowedOrigins),cookiePath=basePath+'/api';
   async function supa(path,{method='GET',body,token,key=serviceKey}={}){
@@ -25,6 +26,7 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
     return data;
   }
   const rpc=(name,body)=>supa('/rest/v1/rpc/'+name,{method:'POST',body});
+  const checkout=createCheckout({config:checkoutConfig,fetchImpl,origin:allowedOrigins[0],basePath,rpc,fault});
   return async function gateway(req){
     const headers=new Headers({'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});
     const origin=req.headers.get('origin');
@@ -38,7 +40,8 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
       const url=new URL(req.url),path=url.pathname.replace(/^.*\/simulou-passou-api(?=\/)/,'').replace(/^\/simulou-passou(?=\/)/,'');
       if(req.method==='OPTIONS'){if(!origins.has(origin))return finish({error:'Origem não autorizada.'},403);headers.set('Access-Control-Allow-Methods','GET,POST,PATCH,DELETE,OPTIONS');headers.set('Access-Control-Allow-Headers','Content-Type');return new Response(null,{status:204,headers});}
       if(!['GET','POST','PATCH','DELETE'].includes(req.method))return finish({error:'Método não permitido.'},405);
-      if(req.method!=='GET'&&!origins.has(origin))return finish({error:'Origem não autorizada.'},403);
+      const webhook=path==='/api/payments/asaas'&&req.method==='POST';
+      if(!webhook&&req.method!=='GET'&&!origins.has(origin))return finish({error:'Origem não autorizada.'},403);
       if(!path.startsWith('/api/'))return finish({error:'Operação não encontrada.'},404);
       let body={};
       if(req.method!=='GET'){
@@ -49,13 +52,14 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
         try{body=size?JSON.parse(new TextDecoder().decode(all)):{};}catch{throw fault(400,'Solicitação inválida.');}
         if(!body||typeof body!=='object'||Array.isArray(body))throw fault(400,'Solicitação inválida.');
       }
+      if(webhook)return finish(await checkout.handleWebhook(req,body));
       const jar=cookies(req.headers.get('cookie'));let token=jar.sp_access;
       if(token){try{user=await supa('/auth/v1/user',{token,key:publishableKey});}catch(e){if(e.status!==401&&e.status!==403)throw e;}}
       if(!user&&jar.sp_refresh){
         try{const session=await supa('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:{refresh_token:jar.sp_refresh},key:publishableKey});token=session.access_token;user=session.user;setSession(session);}catch(e){if(e.status>=500)throw e;clear();}
       }
       if(user&&(user.is_anonymous||!user.email)){user=null;clear();}
-      if(path==='/api/health'&&req.method==='GET'){await rpc('sp_runtime_load',{p_actor:null});return finish({ok:true,module:'simulou-passou',build:'cloud-1',payments:'disabled'});}
+      if(path==='/api/health'&&req.method==='GET'){await rpc('sp_runtime_load',{p_actor:null});return finish({ok:true,module:'simulou-passou',build:'cloud-2',payments:checkout.configured?'configured':'disabled'});}
       if(path==='/api/auth/demo'||path.includes('/demo-event'))return finish({error:'Operação de demonstração indisponível.'},404);
       if(path==='/api/auth/register'&&req.method==='POST'){
         const name=String(body.name||'').trim().slice(0,100),email=String(body.email||'').trim().toLowerCase(),password=String(body.password||'');
@@ -73,24 +77,40 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
         clear();return finish({ok:true});
       }
       if(path==='/api/auth/recover'&&req.method==='POST'){
-        await supa('/auth/v1/recover?redirect_to='+encodeURIComponent([...origins][0]+basePath+'/'),{method:'POST',body:{email:String(body.email||'').trim()},key:publishableKey});
-        return finish({message:'Se houver uma conta elegível, você receberá um e-mail com o link de recuperação. Verifique também a pasta de spam.'});
+        const email=String(body.email||'').trim().toLowerCase();
+        if(email.length>254||!/^\S+@\S+\.\S+$/.test(email))throw fault(400,'Informe um e-mail válido.');
+        try{
+          await supa('/auth/v1/recover?redirect_to='+encodeURIComponent([...origins][0]+basePath+'/'),{method:'POST',body:{email},key:publishableKey});
+        }catch(e){
+          if(e.status===429)throw fault(429,'Aguarde alguns minutos antes de pedir outro link.');
+          if(![400,403,404,422].includes(e.status))throw fault(503,'Não conseguimos enviar o link agora. Tente novamente em alguns minutos.');
+        }
+        return finish({message:'Confira sua caixa de entrada e o spam. Se houver uma conta para esse e-mail, o link de recuperação será enviado.'});
       }
       if(path==='/api/auth/callback'&&req.method==='POST'){
         const access=String(body.access_token||''),refresh=String(body.refresh_token||'');
         if(access.length>10000||refresh.length>2000||!access||!refresh)throw fault(400,'Link inválido.');
-        await supa('/auth/v1/user',{token:access,key:publishableKey});
-        setSession({access_token:access,refresh_token:refresh,expires_in:3600});return finish({ok:true});
+        const account=await supa('/auth/v1/user',{token:access,key:publishableKey});
+        const session=await supa('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:{refresh_token:refresh},key:publishableKey});
+        if(!account.id||session.user?.id!==account.id||!session.access_token||!session.refresh_token)throw fault(401,'Link inválido ou expirado.');
+        setSession(session);return finish({ok:true});
       }
       if(path==='/api/auth/reset'&&req.method==='POST'){
         if(!user)throw fault(401,'Abra o link de recuperação recebido por e-mail.');
         const password=String(body.password||'');if(password.length<8||password.length>128)throw fault(400,'Use uma senha com 8 a 128 caracteres.');
-        await supa('/auth/v1/user',{method:'PUT',token,key:publishableKey,body:{password}});
+        try{
+          await supa('/auth/v1/user',{method:'PUT',token,key:publishableKey,body:{password}});
+        }catch(e){
+          if(e.code==='same_password')throw fault(422,'Escolha uma senha diferente da atual.');
+          if(e.code==='weak_password')throw fault(422,'Escolha uma senha mais forte.');
+          if(e.status===401||e.status===403)throw fault(401,'O link perdeu a validade. Solicite um novo link.');
+          throw e;
+        }
         await supa('/auth/v1/logout?scope=local',{method:'POST',token,key:publishableKey}).catch(()=>{});clear();return finish({ok:true});
       }
       if(path.startsWith('/api/auth/'))throw fault(404,'Operação não encontrada.');
       if(!user&&path!=='/api/bootstrap')throw fault(401,'Entre na sua conta para continuar.');
-      if(path==='/api/orders'&&req.method==='POST')throw fault(503,'As vendas ainda não estão habilitadas. O conteúdo e as condições comerciais estão em preparação.');
+      if(path==='/api/orders'&&req.method==='POST')return finish(await checkout.create(user,body.prepId));
       if(path.startsWith('/api/orders/')||path.includes('/payment'))throw fault(404,'Operação não encontrada.');
       if(/^\/api\/admin\/access\/[^/]+$/.test(path)&&req.method==='PATCH'){
         const state=await rpc('sp_runtime_load',{p_actor:user.id});if(!state.admin)throw fault(403,'Acesso exclusivo da administração.');
@@ -98,6 +118,7 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
       }
       for(let retry=0;retry<3;retry++){
         const context=await rpc('sp_runtime_load',{p_actor:user?.id||null});
+        const paidUsers=new Set((context.orders||[]).filter(order=>order.status==='paid'&&order.prepId&&order.providerMode===checkout.mode).map(order=>order.userId));
         const db=seed();for(const key of catalogKeys)db[key]=copy(context.catalog.body[key]||[]);
         db.users=[];db.orders=context.orders||[];db.sessions=[];db.recoveries=[];db.paymentEvents=[];for(const key of personal)db[key]=[];
         const records=context.members||[];
@@ -106,7 +127,7 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
         if(user){identity=db.users.find(u=>u.id===user.id);if(!identity){identity={id:user.id,name:user.user_metadata?.name||user.user_metadata?.full_name||'Participante',email:user.email,createdAt:user.created_at};db.users.push(identity);}
           identity.email=user.email;identity.role=context.admin?'master':'student';identity.demo=false;}
         let dirty=false;
-        const engine=createApp({dataFile:null,initialDb:db,identity,authorizeAccess:u=>!!u&&(u.id===user?.id?(context.admin||context.entitled):(context.active_users||[]).includes(u.id)||(context.administrator_ids||[]).includes(u.id)),onPersist:()=>{dirty=true;},now});
+        const engine=createApp({dataFile:null,initialDb:db,identity,authorizeAccess:u=>!!u&&(paidUsers.has(u.id)||(u.id===user?.id?(context.admin||context.entitled):(context.active_users||[]).includes(u.id)||(context.administrator_ids||[]).includes(u.id))),onPersist:()=>{dirty=true;},now});
         const input=Readable.from(req.method==='GET'?[]:[JSON.stringify(body)]);
         Object.assign(input,{headers:{host:'localhost'},url:path,method:req.method});const output=new Capture();
         await engine.handler(input,output);
@@ -124,7 +145,7 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
           catch(e){if(e.code==='40001'&&retry<2)continue;throw e.code==='40001'?fault(409,'Outra aba atualizou seus dados. Tente novamente.'):e;}
         }
         let result;try{result=JSON.parse(output.body);}catch{throw fault(500,'Resposta inválida.');}
-        if(path==='/api/bootstrap'&&output.status===200){result.local=false;result.checkoutEnabled=false;result.production=true;}
+        if(path==='/api/bootstrap'&&output.status===200){result.local=false;result.checkoutEnabled=checkout.configured&&context.checkout_enabled===true;result.production=true;}
         if(path==='/api/admin'&&output.status===200){for(const member of result.users)member.manualAccess=(context.active_users||[]).includes(member.id);}
         return finish(result,output.status);
       }
