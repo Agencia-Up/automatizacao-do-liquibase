@@ -2,9 +2,7 @@
 alter table simulou_passou_private.orders
   add column if not exists prep_id text,
   add column if not exists provider_mode text check(provider_mode in ('sandbox','production'));
-drop index if exists simulou_passou_private.sp_one_pending_order;
-create unique index if not exists sp_pending_checkout_order
-  on simulou_passou_private.orders(user_id,provider_mode) where status='pending' and prep_id is not null;
+-- Preserve the existing single pending order constraint. Use a separate project for Sandbox.
 create index if not exists sp_paid_checkout_order
   on simulou_passou_private.orders(user_id,provider_mode) where status='paid' and prep_id is not null;
 
