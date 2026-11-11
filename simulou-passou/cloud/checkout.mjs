@@ -14,7 +14,7 @@ export function createCheckout({config,fetchImpl,origin,basePath,rpc,fault}){
   const pay=sandbox?'https://sandbox.asaas.com':'https://asaas.com';
   const encoder=new TextEncoder();
   const secret=encoder.encode(config?.webhookToken||'');
-  const provider=async(path,body)=>{
+  const provider=async(path,body,onRejected)=>{
     const response=await fetchImpl(api+path,{
       method:body?'POST':'GET',
       headers:{access_token:config.apiKey,'Content-Type':'application/json','User-Agent':'Simulou-Passou/1.0'},
@@ -23,23 +23,18 @@ export function createCheckout({config,fetchImpl,origin,basePath,rpc,fault}){
       signal:AbortSignal.timeout(12000),
     });
     if(!response.ok){
-      let errors=[];
-      if(path==='/checkouts'&&body?.customerData&&[400,422].includes(response.status)){
-        const error=await response.json().catch(()=>null);
-        errors=Array.isArray(error?.errors)?error.errors:[];
-        const fields=errors.map(item=>item?.code+' '+item?.description).join(' ');
-        if(/customer|pagador|cpf|cnpj|endere[cç]o|postal|cidade|bairro|telefone|phone|e.?mail|parse_error/i.test(fields)){
-          const {customerData,...checkout}=body;
-          return provider(path,checkout);
-        }
-      }
       if(path==='/checkouts'){
-        if(!body?.customerData){
-          const error=await response.json().catch(()=>null);
-          errors=Array.isArray(error?.errors)?error.errors:[];
+        const error=await response.json().catch(()=>null);
+        const errors=Array.isArray(error?.errors)?error.errors:[];
+        const fields=errors.map(item=>item?.code+' '+item?.description).join(' ');
+        if(body?.customerData&&[400,422].includes(response.status)
+          &&/customer|pagador|cpf|cnpj|endere[cç]o|postal|cidade|bairro|telefone|phone|e.?mail|parse_error/i.test(fields)){
+          const {customerData,...checkout}=body;
+          return provider(path,checkout,onRejected);
         }
         const codes=errors.map(item=>item?.code).filter(code=>typeof code==='string'&&/^[a-z0-9_]{1,64}$/i.test(code));
         console.warn('Simulou Passou: Asaas recusou o checkout',response.status,codes.join(','));
+        if([400,401,403,422].includes(response.status)&&errors.length>0)await onRejected?.();
       }
       throw fault(503,'O provedor de pagamentos está indisponível. Tente novamente em instantes.');
     }
@@ -85,7 +80,7 @@ export function createCheckout({config,fetchImpl,origin,basePath,rpc,fault}){
         imageBase64:config.itemImage,
         quantity:1,value:order.amount/100,
       }],
-    });
+    },()=>rpc('sp_checkout_release_rejected',{p_order:order.id,p_mode:mode}));
     if(!checkoutId(checkout.id))throw fault(503,'O provedor não retornou um link de pagamento válido.');
     const url=pay+'/checkoutSession/show?id='+encodeURIComponent(checkout.id);
     await rpc('sp_checkout_attach',{p_order:order.id,p_provider:checkout.id,p_url:url});

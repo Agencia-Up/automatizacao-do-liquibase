@@ -15,6 +15,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/checkout-provider.sql'),'utf8'));
     await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/checkout-guest.sql'),'utf8'));
     await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/checkout-details.sql'),'utf8'));
+    await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/checkout-retry.sql'),'utf8'));
     await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/account-mail.sql'),'utf8'));
     const data=seed(),catalog=Object.fromEntries(['preparations','questions','materials','quizzes'].map(k=>[k,data[k]]));
     await db.query('update simulou_passou_private.catalog set body=$1::jsonb',[JSON.stringify(catalog)]);
@@ -50,7 +51,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
       {id:'pay_guest_all',offer:'all',value:49.9,billingType:'CREDIT_CARD'},
     ];
     const itemImage=fs.readFileSync(path.join(__dirname,'../public/simulou-passou-logo.png')).toString('base64');
-    let checkoutCreates=0, checkoutLookups=0, prefillRejected=0;
+    let checkoutCreates=0, checkoutLookups=0, prefillRejected=0, rejectNextCheckout=false;
     const recoveryKey='b'.repeat(56);
     let capturedMail, verifiedLinks=0;
     const fetchImpl=async(url,options)=>{
@@ -65,6 +66,10 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
       if(u.origin==='https://api-sandbox.asaas.com'){
         assert.equal(options.headers.access_token,'sandbox-provider-test-only');
         if(u.pathname==='/v3/checkouts'){
+          if(rejectNextCheckout){
+            rejectNextCheckout=false;
+            return reply({errors:[{code:'invalid_object',description:'Valor inválido'}]},400);
+          }
           const {id,offer,value,billingType,prepId}=checkoutCases[checkoutCreates];
           assert.equal(b.items[0].imageBase64,itemImage);
           assert.ok(Array.from(b.items[0].name).length<=30);
@@ -114,7 +119,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
         return ['token-admin','token-student','token-buyer'].includes(token)?reply(user(token.slice(6))):reply({},401);
       }
       if(u.pathname==='/auth/v1/logout'||u.pathname==='/auth/v1/recover')return reply({});
-      const name=u.pathname.split('/').at(-1),params={sp_runtime_load:['p_actor'],sp_runtime_commit:['p_actor','p_catalog_revision','p_catalog','p_members'],sp_module_access:['p_actor','p_user','p_active'],sp_checkout_claim_offer:['p_actor','p_prep','p_mode','p_offer'],sp_checkout_claim_guest:['p_guest','p_email','p_prep','p_mode','p_offer'],sp_checkout_claim_details:['p_actor','p_guest','p_email','p_prep','p_mode','p_offer','p_name','p_phone','p_method'],sp_checkout_link_guest:['p_actor','p_email','p_mode'],sp_checkout_attach:['p_order','p_provider','p_url'],sp_checkout_event:['p_provider','p_mode','p_event','p_state','p_amount'],sp_checkout_known:['p_provider','p_mode'],sp_mail_reserve:['p_recipient','p_client']}[name];
+      const name=u.pathname.split('/').at(-1),params={sp_runtime_load:['p_actor'],sp_runtime_commit:['p_actor','p_catalog_revision','p_catalog','p_members'],sp_module_access:['p_actor','p_user','p_active'],sp_checkout_claim_offer:['p_actor','p_prep','p_mode','p_offer'],sp_checkout_claim_guest:['p_guest','p_email','p_prep','p_mode','p_offer'],sp_checkout_claim_details:['p_actor','p_guest','p_email','p_prep','p_mode','p_offer','p_name','p_phone','p_method'],sp_checkout_link_guest:['p_actor','p_email','p_mode'],sp_checkout_release_rejected:['p_order','p_mode'],sp_checkout_attach:['p_order','p_provider','p_url'],sp_checkout_event:['p_provider','p_mode','p_event','p_state','p_amount'],sp_checkout_known:['p_provider','p_mode'],sp_mail_reserve:['p_recipient','p_client']}[name];
       if(!params)throw Error('Unknown mock endpoint');
       try{const result=await db.query(`select public.${name}(${params.map((_,i)=>'$'+(i+1)).join(',')}) as result`,params.map(k=>b[k]&&typeof b[k]==='object'?JSON.stringify(b[k]):b[k]));return reply(result.rows[0].result);}
       catch(e){return reply({code:e.code},e.code==='40001'?409:e.code==='PT429'?429:400);}
@@ -230,11 +235,20 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     for(const {id,offer,billingType,prepId='pqo'} of checkoutCases.slice(4)){
       const body={prepId,offer,email:'BUYER@example.test',name:' Cliente   Sintético ',phone:'+55 (11) 98765-4321',method:billingType,amount:1};
       assert.equal((await cloudRequest('/orders',{...body,phone:'123'},{cookie:''})).status,400);
-      const order=await cloudRequest('/orders',body,{cookie:''});
+      let retryCookie='';
+      if(offer==='module'){
+        rejectNextCheckout=true;
+        const failed=await cloudRequest('/orders',body,{cookie:''});
+        assert.equal(failed.status,503);
+        const rejected=await db.query("select status from simulou_passou_private.orders where provider_state='rejected'");
+        assert.deepEqual(rejected.rows,[{status:'cancelled'}]);
+        retryCookie=failed.headers.getSetCookie().find(cookie=>cookie.startsWith('sp_guest=')).split(';')[0];
+      }
+      const order=await cloudRequest('/orders',body,{cookie:retryCookie});
       assert.equal(order.status,200);
       const created=await order.json();
       assert.match(created.url,/checkoutSession/);
-      const guestCookie=order.headers.getSetCookie().find(cookie=>cookie.startsWith('sp_guest=')).split(';')[0];
+      const guestCookie=retryCookie||order.headers.getSetCookie().find(cookie=>cookie.startsWith('sp_guest=')).split(';')[0];
       assert.match(guestCookie,/^sp_guest=[a-f0-9]{64}$/);
       assert.deepEqual(await (await cloudRequest('/orders',body,{cookie:guestCookie})).json(),created);
       const otherMethod=billingType==='PIX'?'CREDIT_CARD':'PIX';
