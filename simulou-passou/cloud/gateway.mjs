@@ -1,6 +1,6 @@
 import {createCheckout} from './checkout.mjs';
-import {createAccountMail,recoveryKeyPattern} from './account-mail.mjs';
-import {createHash,randomBytes} from 'node:crypto';
+import {createAccountMail,createPurchaseMail,recoveryKeyPattern} from './account-mail.mjs';
+import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {Readable} from 'node:stream';
 import {createApp} from '../server.mjs';
 import {seed} from '../seed.mjs';
@@ -18,7 +18,7 @@ class Capture {
   writeHead(status,headers={}){this.status=status;for(const [k,v] of Object.entries(headers))this.setHeader(k,v);this.headersSent=true;}
   end(value=''){this.body=String(value);}
 }
-export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowedOrigins,basePath='/simulou-passou',fetchImpl=fetch,now=()=>Date.now(),checkoutConfig,resendKey,guestCheckoutEnabled=false}){
+export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowedOrigins,basePath='/simulou-passou',fetchImpl=fetch,now=()=>Date.now(),checkoutConfig,resendKey,purchaseMailKey,guestCheckoutEnabled=false}){
   if(!supabaseUrl||!serviceKey||!publishableKey||!allowedOrigins?.length)throw new Error('Missing server configuration');
   const origins=new Set(allowedOrigins),cookiePath=basePath+'/api';
   async function supa(path,{method='GET',body,token,key=serviceKey}={}){
@@ -31,6 +31,9 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
   const checkout=createCheckout({config:checkoutConfig,fetchImpl,origin:allowedOrigins[0],basePath,rpc,fault});
   const recoveryPage=allowedOrigins[0]+basePath;
   const accountMail=resendKey?createAccountMail({supa,fetchImpl,baseUrl:recoveryPage,resendKey,fault}):null;
+  const purchaseMail=purchaseMailKey?createPurchaseMail({supa,fetchImpl,baseUrl:recoveryPage,resendKey:purchaseMailKey}):null;
+  const digest=value=>createHash('sha256').update(value).digest();
+  const workerAuth=digest('Bearer '+serviceKey);
   const mailKey=value=>createHash('sha256').update(serviceKey+'\n'+value).digest('hex');
   return async function gateway(req){
     const headers=new Headers({'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});
@@ -44,6 +47,18 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
     let user=null;
     try{
       const url=new URL(req.url),path=url.pathname.replace(/^.*\/simulou-passou-api(?=\/)/,'').replace(/^\/simulou-passou(?=\/)/,'');
+      if(path==='/api/internal/purchase-mail'&&req.method==='POST'){
+        if(!timingSafeEqual(digest(req.headers.get('authorization')||''),workerAuth))return finish({error:'Operação não autorizada.'},403);
+        if(!purchaseMail)return finish({error:'Envio indisponível.'},503);
+        const orders=await rpc('sp_purchase_mail_claim',{p_mode:checkout.mode});
+        const results=await Promise.all(orders.map(async order=>{
+          let error;
+          try{error=await purchaseMail(order);}catch{error='mail_request_failed';}
+          await rpc('sp_purchase_mail_finish',{p_order:order.id,p_claim:order.token,p_error:error});
+          return error===null;
+        }));
+        return finish({sent:results.filter(Boolean).length,failed:results.filter(result=>!result).length});
+      }
       if(req.method==='OPTIONS'){if(!origins.has(origin))return finish({error:'Origem não autorizada.'},403);headers.set('Access-Control-Allow-Methods','GET,POST,PATCH,DELETE,OPTIONS');headers.set('Access-Control-Allow-Headers','Content-Type');return new Response(null,{status:204,headers});}
       if(!['GET','POST','PATCH','DELETE'].includes(req.method))return finish({error:'Método não permitido.'},405);
       const webhook=path==='/api/payments/asaas'&&req.method==='POST';
@@ -65,7 +80,7 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
         try{const session=await supa('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:{refresh_token:jar.sp_refresh},key:publishableKey});token=session.access_token;user=session.user;setSession(session);}catch(e){if(e.status>=500)throw e;clear();}
       }
       if(user&&(user.is_anonymous||!user.email)){user=null;clear();}
-      if(path==='/api/health'&&req.method==='GET'){await rpc('sp_runtime_load',{p_actor:null});return finish({ok:true,module:'simulou-passou',build:'cloud-9',payments:checkout.configured?'configured':'disabled',guestCheckout:guestCheckoutEnabled&&checkout.configured,recoveryEmail:accountMail?'branded':'standard'});}
+      if(path==='/api/health'&&req.method==='GET'){await rpc('sp_runtime_load',{p_actor:null});return finish({ok:true,module:'simulou-passou',build:'cloud-10',payments:checkout.configured?'configured':'disabled',guestCheckout:guestCheckoutEnabled&&checkout.configured,recoveryEmail:accountMail?'branded':'standard'});}
       if(path==='/api/auth/demo'||path.includes('/demo-event'))return finish({error:'Operação de demonstração indisponível.'},404);
       if(path==='/api/auth/register'&&req.method==='POST'){
         const name=String(body.name||'').trim().slice(0,100),email=String(body.email||'').trim().toLowerCase(),password=String(body.password||'');

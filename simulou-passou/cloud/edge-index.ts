@@ -6,6 +6,7 @@ const gateway=createCloudGateway({
   serviceKey:Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),
   publishableKey:Deno.env.get('SUPABASE_ANON_KEY'),
   resendKey:Deno.env.get('RESEND_API_KEY'),
+  purchaseMailKey:Deno.env.get('RESEND_API_KEY'),
   guestCheckoutEnabled:true,
   checkoutConfig:{
     itemImage,

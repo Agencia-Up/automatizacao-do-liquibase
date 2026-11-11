@@ -56,3 +56,40 @@ export function createAccountMail({supa,fetchImpl=fetch,baseUrl,resendKey,fault}
     return sent.id;
   };
 }
+
+export function createPurchaseMail({supa,fetchImpl=fetch,baseUrl,resendKey}){
+  const enter=baseUrl+'/#/entrar',register=baseUrl+'/#/cadastro';
+  const currency=new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'});
+  return async order=>{
+    const account=!order.email&&order.userId?await supa('/auth/v1/admin/users/'+encodeURIComponent(order.userId)):null;
+    const email=order.email||account?.email||account?.user?.email;
+    if(typeof email!=='string'||email.length>254||!/^\S+@\S+\.\S+$/.test(email))return 'invalid_recipient';
+    const product=order.offer==='all'?'Pacote completo':order.module||'Módulo individual';
+    const amount=currency.format(order.amount/100);
+    const subject='Compra confirmada · Simulou Passou';
+    const instructions='Use o mesmo e-mail informado na compra. Se for seu primeiro acesso, crie uma conta e confirme o e-mail do cadastro.';
+    const text=`${subject}\n\nProduto: ${product}\nValor: ${amount}\n\n${instructions}\n\nEntrar: ${enter}\nCriar conta: ${register}\n\nSimulou Passou · Logos IA`;
+    const html=`<!doctype html><html lang="pt-BR"><body style="margin:0;padding:24px;background:#f4f4ee;color:#19363a;font:16px/1.6 Arial,sans-serif">
+      <main style="max-width:540px;margin:auto;padding:26px;background:white;border-radius:12px">
+        <img src="${escapeHtml(baseUrl)}/simulou-passou-logo.png" width="228" height="56" alt="Simulou Passou">
+        <h1 style="font-size:26px">Sua compra foi confirmada</h1>
+        <p><strong>${escapeHtml(product)}</strong><br>${escapeHtml(amount)}</p>
+        <p>${instructions}</p>
+        <p><a style="display:inline-block;padding:11px 18px;border-radius:6px;background:#17383f;color:white;text-decoration:none" href="${escapeHtml(enter)}">Acessar meus simulados</a></p>
+        <p>Primeiro acesso? <a href="${escapeHtml(register)}">Criar conta</a></p>
+        <p style="font-size:13px">Simulou Passou · Logos IA<br>suporte@logosiabrasil.com</p>
+      </main></body></html>`;
+    const response=await fetchImpl('https://api.resend.com/emails',{
+      method:'POST',redirect:'error',signal:AbortSignal.timeout(6000),
+      headers:{Authorization:'Bearer '+resendKey,'Content-Type':'application/json','Idempotency-Key':'sp-purchase/'+order.id},
+      body:JSON.stringify({
+        from:'Simulou Passou <suporte@logosiabrasil.com>',to:[email],reply_to:'suporte@logosiabrasil.com',
+        headers:{'Auto-Submitted':'auto-generated'},
+        tags:[{name:'project',value:'simulou-passou'},{name:'message_type',value:'purchase-confirmation'}],
+        subject,html,text,
+      }),
+    });
+    const sent=await response.json().catch(()=>null);
+    return response.ok&&typeof sent?.id==='string'?null:'resend_'+response.status;
+  };
+}

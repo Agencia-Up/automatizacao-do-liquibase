@@ -17,6 +17,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/checkout-details.sql'),'utf8'));
     await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/checkout-retry.sql'),'utf8'));
     await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/checkout-asaas-offers.sql'),'utf8'));
+    await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/purchase-mail.sql'),'utf8'));
     await db.exec("insert into simulou_passou_private.asaas_offers values ('sandbox','module','synthetic-module',2990),('sandbox','all','synthetic-all',4990)");
     await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/account-mail.sql'),'utf8'));
     const data=seed(),catalog=Object.fromEntries(['preparations','questions','materials','quizzes'].map(k=>[k,data[k]]));
@@ -56,12 +57,17 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     let checkoutCreates=0, checkoutLookups=0, prefillRejected=0, rejectNextCheckout=false;
     const recoveryKey='b'.repeat(56);
     let capturedMail, verifiedLinks=0;
+    const purchaseMails=[];
     const fetchImpl=async(url,options)=>{
       const u=new URL(url),b=options.body?JSON.parse(options.body):{},token=options.headers.Authorization?.slice(7);
       const user=role=>({id:role==='admin'?m:role==='buyer'?buyerId:a,email:role+'@example.test',user_metadata:{name:role},created_at:'2026-01-01T00:00:00Z',email_confirmed_at:'2026-01-01T00:00:00Z'});
       const reply=(data,status=200)=>new Response(JSON.stringify(data),{status});
       if(u.origin==='https://api.resend.com'){
         assert.equal(options.headers.Authorization,'Bearer mail-qa-only');
+        if(b.tags.some(tag=>tag.value==='purchase-confirmation')){
+          purchaseMails.push({message:b,key:options.headers['Idempotency-Key']});
+          return reply({id:'synthetic-purchase-email'});
+        }
         capturedMail=b;
         return reply({id:'synthetic-email'});
       }
@@ -100,6 +106,10 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
         }
       }
       if(u.pathname==='/auth/v1/signup')return reply({user:user('student')});
+      if(u.pathname==='/auth/v1/admin/users/'+a){
+        assert.equal(token,'server-qa-only');
+        return reply(user('student'));
+      }
       if(u.pathname==='/auth/v1/token'){const role=(b.email||b.refresh_token||'').includes('admin')?'admin':'student';return reply({access_token:'token-'+role,refresh_token:'refresh-'+role,user:user(role),expires_in:3600});}
       if(u.pathname==='/auth/v1/admin/generate_link'){
         assert.equal(token,'server-qa-only');
@@ -122,7 +132,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
         return ['token-admin','token-student','token-buyer'].includes(token)?reply(user(token.slice(6))):reply({},401);
       }
       if(u.pathname==='/auth/v1/logout'||u.pathname==='/auth/v1/recover')return reply({});
-      const name=u.pathname.split('/').at(-1),params={sp_runtime_load:['p_actor'],sp_runtime_commit:['p_actor','p_catalog_revision','p_catalog','p_members'],sp_module_access:['p_actor','p_user','p_active'],sp_checkout_asaas_offer:['p_mode','p_offer'],sp_checkout_claim_offer:['p_actor','p_prep','p_mode','p_offer'],sp_checkout_claim_guest:['p_guest','p_email','p_prep','p_mode','p_offer'],sp_checkout_claim_details:['p_actor','p_guest','p_email','p_prep','p_mode','p_offer','p_name','p_phone','p_method'],sp_checkout_link_guest:['p_actor','p_email','p_mode'],sp_checkout_release_rejected:['p_order','p_mode'],sp_checkout_attach:['p_order','p_provider','p_url'],sp_checkout_event:['p_provider','p_mode','p_event','p_state','p_amount'],sp_checkout_known:['p_provider','p_mode'],sp_mail_reserve:['p_recipient','p_client']}[name];
+      const name=u.pathname.split('/').at(-1),params={sp_runtime_load:['p_actor'],sp_runtime_commit:['p_actor','p_catalog_revision','p_catalog','p_members'],sp_module_access:['p_actor','p_user','p_active'],sp_checkout_asaas_offer:['p_mode','p_offer'],sp_checkout_claim_offer:['p_actor','p_prep','p_mode','p_offer'],sp_checkout_claim_guest:['p_guest','p_email','p_prep','p_mode','p_offer'],sp_checkout_claim_details:['p_actor','p_guest','p_email','p_prep','p_mode','p_offer','p_name','p_phone','p_method'],sp_checkout_link_guest:['p_actor','p_email','p_mode'],sp_checkout_release_rejected:['p_order','p_mode'],sp_checkout_attach:['p_order','p_provider','p_url'],sp_checkout_event:['p_provider','p_mode','p_event','p_state','p_amount'],sp_checkout_known:['p_provider','p_mode'],sp_purchase_mail_claim:['p_mode'],sp_purchase_mail_finish:['p_order','p_claim','p_error'],sp_mail_reserve:['p_recipient','p_client']}[name];
       if(!params)throw Error('Unknown mock endpoint');
       try{const result=await db.query(`select public.${name}(${params.map((_,i)=>'$'+(i+1)).join(',')}) as result`,params.map(k=>b[k]&&typeof b[k]==='object'?JSON.stringify(b[k]):b[k]));return reply(result.rows[0].result);}
       catch(e){return reply({code:e.code},e.code==='40001'?409:e.code==='PT429'?429:400);}
@@ -137,8 +147,11 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     });
     await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
     let timeShift=0;
-    gateway=createCloudGateway({supabaseUrl:'https://db.example.test',serviceKey:'server-qa-only',publishableKey:'public-qa',allowedOrigins:[base],fetchImpl,now:()=>Date.now()+timeShift,resendKey:'mail-qa-only',guestCheckoutEnabled:true,checkoutConfig:{mode:'sandbox',apiKey:'sandbox-provider-test-only',webhookToken:secret,itemImage}});
+    gateway=createCloudGateway({supabaseUrl:'https://db.example.test',serviceKey:'server-qa-only',publishableKey:'public-qa',allowedOrigins:[base],fetchImpl,now:()=>Date.now()+timeShift,resendKey:'mail-qa-only',purchaseMailKey:'mail-qa-only',guestCheckoutEnabled:true,checkoutConfig:{mode:'sandbox',apiKey:'sandbox-provider-test-only',webhookToken:secret,itemImage}});
     const cloudRequest=(path,body,headers={})=>gateway(new Request(base+'/simulou-passou/api'+path,{method:body?'POST':'GET',headers:{origin:base,cookie:'sp_access=token-student',...headers},body:body?JSON.stringify(body):undefined}));
+    const runMail=()=>cloudRequest('/internal/purchase-mail',{},{authorization:'Bearer server-qa-only',origin:'https://cron.example.test'});
+    assert.equal((await cloudRequest('/internal/purchase-mail',{})).status,403);
+    assert.deepEqual(await (await runMail()).json(),{sent:0,failed:0});
     assert.equal((await cloudRequest('/orders',{prepId:'pqo',offer:'module'})).status,503);
     await db.exec('update simulou_passou_private.settings set checkout_enabled=true where id;');
     const order=await (await cloudRequest('/orders',{prepId:'pqo',offer:'module',amount:1})).json();
@@ -159,6 +172,9 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     pix.status='RECEIVED';
     assert.equal((await notify(event)).status,200);
     assert.equal((await notify(event)).status,200);
+    assert.deepEqual(await (await runMail()).json(),{sent:1,failed:0});
+    assert.deepEqual(await (await runMail()).json(),{sent:0,failed:0});
+    assert.deepEqual(purchaseMails[0].message.to,['student@example.test']);
     const moduleUser=await currentUser();
     assert.equal(moduleUser.hasAccess,true);
     assert.equal(moduleUser.allModules,false);
@@ -260,6 +276,13 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
       const payment=payments.get(id);
       payment.status=billingType==='PIX'?'RECEIVED':'CONFIRMED';
       assert.equal((await notify({id:id+'_paid',event:'PAYMENT_CONFIRMED',payment:{id,checkoutSession:payment.checkoutSession}})).status,200);
+      assert.deepEqual(await (await runMail()).json(),{sent:1,failed:0});
+      const {message,key}=purchaseMails.at(-1);
+      assert.deepEqual(message.to,['buyer@example.test']);
+      assert.match(message.text,offer==='all'?/Pacote completo[\s\S]*49,90/:/Recertificação - PQO Operações[\s\S]*29,90/);
+      assert.ok(message.html.includes(base+'/simulou-passou/#/entrar'));
+      assert.ok(message.html.includes(base+'/simulou-passou/#/cadastro'));
+      assert.match(key,/^sp-purchase\/[a-f0-9-]{36}$/);
       assert.deepEqual(await (await cloudRequest('/orders',body,{cookie:guestCookie})).json(),{guestPaid:true});
       assert.equal((await buyerContext('token-unconfirmed')).hasAccess,false);
       assert.equal((await currentUser()).hasAccess,false);
