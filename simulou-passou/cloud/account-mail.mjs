@@ -5,14 +5,14 @@ const escapeHtml=value=>String(value).replace(/[&<>"']/g,character=>({
 export const recoveryKeyPattern=/^[A-Za-z0-9_-]{32,160}$/;
 
 function accountEmail({baseUrl,resetUrl,access,name}){
-  const subject=access?'Seu acesso ao Simulou Passou está liberado':'Redefina sua senha do Simulou Passou';
-  const title=access?'Seu pacote completo está liberado':'Vamos redefinir sua senha';
+  const subject=access?'Simulou Passou: defina sua senha de acesso':'Simulou Passou: redefinição de senha';
+  const title=access?'Defina sua senha de acesso':'Redefina sua senha';
   const greeting=name?'Olá, '+name+'.':'Olá!';
   const details=access
-    ? 'Você já tem acesso a todos os simulados e materiais do Simulou Passou. Use o botão abaixo para escolher uma nova senha e entrar na sua área.'
-    : 'Recebemos um pedido para recuperar seu acesso ao Simulou Passou. Use o botão abaixo para escolher uma nova senha.';
-  const action=access?'Definir senha e acessar':'Definir nova senha';
-  const note=access?'Este link é pessoal e tem validade limitada.':'Se você não solicitou a recuperação, pode ignorar este e-mail. O link tem validade limitada.';
+    ? 'O suporte liberou o acesso à sua conta do Simulou Passou. Use este link para escolher uma senha e entrar na plataforma.'
+    : 'Foi solicitada uma nova senha para sua conta do Simulou Passou. Use este link para escolher a nova senha.';
+  const action='Definir nova senha';
+  const note=access?'O link é pessoal, de uso único e tem validade limitada.':'O link é de uso único e tem validade limitada. Se você não solicitou a redefinição, ignore este e-mail.';
   const url=escapeHtml(resetUrl);
   const html=`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
   <body style="margin:0;background:#f4f4ee;color:#19363a;font-family:Arial,sans-serif">
@@ -21,7 +21,6 @@ function accountEmail({baseUrl,resetUrl,access,name}){
   <tr><td style="padding:24px 28px;background:#17383f;border-radius:13px 13px 0 0">
   <img src="${escapeHtml(baseUrl)}/simulou-passou-logo.png" width="228" height="56" alt="Simulou Passou" style="display:block;max-width:100%;height:auto;color:#fff;font-size:22px;font-weight:bold">
   </td></tr><tr><td style="padding:28px">
-  <p style="margin:0 0 8px;color:#73531e;font-size:11px;letter-spacing:1.5px;font-weight:bold;text-transform:uppercase">Sua área de simulados</p>
   <h1 style="margin:0 0 18px;font:normal 30px/1.16 Georgia,serif">${title}</h1>
   <p style="margin:0 0 8px;font-size:15px;line-height:1.6">${escapeHtml(greeting)}</p>
   <p style="margin:0 0 22px;font-size:15px;line-height:1.6">${details}</p>
@@ -29,7 +28,7 @@ function accountEmail({baseUrl,resetUrl,access,name}){
   <a href="${url}" style="display:inline-block;padding:14px 20px;color:#17383f;font-size:15px;font-weight:bold;text-decoration:none">${action}</a>
   </td></tr></table>
   <p style="margin:20px 0 0;color:#4c6258;font-size:12px;line-height:1.6">${note}</p>
-  </td></tr><tr><td style="padding:16px 28px;background:#eef2ec;border-radius:0 0 13px 13px;color:#40574e;font-size:12px;line-height:1.6">Simulou Passou · Logos IA<br><a href="mailto:suporte@logosiabrasil.com" style="color:#234c42">suporte@logosiabrasil.com</a></td></tr>
+  </td></tr><tr><td style="padding:16px 28px;background:#eef2ec;border-radius:0 0 13px 13px;color:#40574e;font-size:12px;line-height:1.6">Simulou Passou · Logos IA<br>suporte@logosiabrasil.com</td></tr>
   </table></td></tr></table></body></html>`;
   return {subject,html,text:`${greeting}\n\n${title}\n\n${details}\n\n${action}: ${resetUrl}\n\n${note}\n\nSimulou Passou · Logos IA`};
 }
@@ -47,6 +46,8 @@ export function createAccountMail({supa,fetchImpl=fetch,baseUrl,resendKey,fault}
       headers:{Authorization:'Bearer '+resendKey,'Content-Type':'application/json'},
       body:JSON.stringify({
         from:'Simulou Passou <suporte@logosiabrasil.com>',to:[email],reply_to:'suporte@logosiabrasil.com',
+        headers:{'Auto-Submitted':'auto-generated'},
+        tags:[{name:'project',value:'simulou-passou'},{name:'message_type',value:access?'account-access':'password-reset'}],
         ...accountEmail({baseUrl,resetUrl,access,name}),
       }),
     });
