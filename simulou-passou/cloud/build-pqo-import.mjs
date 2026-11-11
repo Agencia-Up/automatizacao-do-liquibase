@@ -6,17 +6,27 @@ import { pqoCatalog, archivedExamples } from '../pqo-catalog.mjs';
 const track=process.argv[2];
 const full=pqoCatalog(),practice=pqoCatalog({practice:true});
 const selected=track?full.quizzes.find(q=>q.prepId===track&&q.durationMinutes===180):null;
-if(track&&!selected)throw new Error('Informe o ID de uma preparação PQO com prova de certificação.');
+if(track&&!selected)throw new Error('Informe o ID de uma preparação PQO com simulado de certificação ou recertificação.');
 const output = resolve(dirname(fileURLToPath(import.meta.url)), track?'../dist/pqo-upgrade-'+track+'.sql':'../dist/pqo-import.sql');
 const select=(key,records)=>track?records.filter(item=>(key==='preparations'?item.id:item.prepId)===track):records;
 const existingIds=new Set(practice.questions.map(q=>q.id));
-const upgrade={preparations:select('preparations',full.preparations),quizzes:select('quizzes',full.quizzes),questions:select('questions',full.questions).filter(q=>!existingIds.has(q.id))};
+const newTrack=track&&!practice.preparations.some(preparation=>preparation.id===track);
+const upgrade={
+  preparations:select('preparations',full.preparations),
+  quizzes:select('quizzes',full.quizzes),
+  questions:select('questions',full.questions).filter(q=>!existingIds.has(q.id)),
+  ...(newTrack?{materials:select('materials',full.materials)}:{}),
+};
 const payload = JSON.stringify(track?upgrade:full);
 const previous = JSON.stringify(Object.fromEntries(Object.entries(practice).filter(([key])=>['quizzes','preparations'].includes(key)).map(([key,items])=>[key,select(key,items)])));
 const archive = JSON.stringify(track?{}:archivedExamples);
 if ([payload,previous,archive].some(text=>text.includes('$pqo$'))) throw new Error('Delimitador de SQL não permitido no catálogo.');
 
-const guardBefore=track?`
+const guardBefore=newTrack?`
+  if exists (
+    select 1 from jsonb_array_elements(current_body->'quizzes') q
+    where q->>'id'=incoming->'quizzes'->0->>'id' and q<>incoming->'quizzes'->0
+  ) then raise exception 'Já existe um simulado diferente com este ID.'; end if;`:track?`
   if not exists (
     select 1 from jsonb_array_elements(current_body->'quizzes') q
     where q in (incoming->'quizzes'->0,previous_catalog->'quizzes'->0)

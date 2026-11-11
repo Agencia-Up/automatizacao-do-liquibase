@@ -22,6 +22,13 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     await db.exec(upgrade);
     const beforeFullImport=(await db.query("select (q->>'durationMinutes')::int minutes, jsonb_array_length(q->'questionIds') questions from simulou_passou_private.catalog cross join lateral jsonb_array_elements(body->'quizzes') q where q->>'id'='pqo-treino-operacoes'")).rows;
     assert.deepEqual(beforeFullImport,[{minutes:180,questions:60}]);
+    const recertId='pqo-recertificacao-operacoes';
+    execFileSync(process.execPath,[path.join(__dirname,'../cloud/build-pqo-import.mjs'),recertId]);
+    const recertSql=fs.readFileSync(path.join(__dirname,'../dist/pqo-upgrade-'+recertId+'.sql'),'utf8');
+    await db.exec(recertSql);
+    const recertRevision=(await db.query('select revision from simulou_passou_private.catalog')).rows[0].revision;
+    await db.exec(recertSql);
+    assert.equal((await db.query('select revision from simulou_passou_private.catalog')).rows[0].revision,recertRevision);
     execFileSync(process.execPath,[path.join(__dirname,'../cloud/build-pqo-import.mjs')]);
     const imported=fs.readFileSync(path.join(__dirname,'../dist/pqo-import.sql'),'utf8');
     await db.exec(imported);
@@ -34,7 +41,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     const checkoutCases=[
       {id:'pay_synthetic_pix',offer:'module',value:29.9,billingType:'PIX'},
       {id:'pay_synthetic_card',offer:'all',value:49.9,billingType:'CREDIT_CARD'},
-      {id:'pay_synthetic_card_module',offer:'module',value:29.9,billingType:'CREDIT_CARD'},
+      {id:'pay_synthetic_card_module',offer:'module',value:29.9,billingType:'CREDIT_CARD',prepId:recertId},
       {id:'pay_synthetic_pix_all',offer:'all',value:49.9,billingType:'PIX'},
     ];
     let checkoutCreates=0, checkoutLookups=0;
@@ -48,9 +55,9 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
           checkoutCreates++;
           const checkoutId='sandbox-checkout-'+checkoutCreates;
           assert.deepEqual(b.billingTypes,['PIX','CREDIT_CARD']);
-          const {id,offer,value,billingType}=checkoutCases[checkoutCreates-1];
+          const {id,offer,value,billingType,prepId}=checkoutCases[checkoutCreates-1];
           assert.equal(b.items[0].value,value);
-          assert.match(b.items[0].name,offer==='all'?/Todos os módulos/:/Operações/);
+          assert.match(b.items[0].name,offer==='all'?/Todos os módulos/:prepId===recertId?/Recertificação - PQO Operações/:/Operações/);
           payments.set(id,{checkoutSession:checkoutId,status:'PENDING',value,billingType});
           return reply({id:checkoutId});
         }
@@ -109,7 +116,11 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     assert.deepEqual(await (await cloudRequest('/orders',{prepId:'pqo',offer:'module'})).json(),{owned:true});
     const catalogInfo=await (await cloudRequest('/bootstrap')).json();
     const operationsQuiz=catalogInfo.quizzes.find(q=>q.prepId==='pqo').id;
+    const recert=catalogInfo.quizzes.find(q=>q.prepId===recertId);
+    assert.deepEqual({questions:recert.count,minutes:recert.durationMinutes,minimum:recert.passPercent,options:recert.optionCounts,review:recert.review,calculator:recert.calculator},
+      {questions:30,minutes:180,minimum:60,options:[4],review:true,calculator:true});
     assert.equal((await cloudRequest('/attempts',{quizId:operationsQuiz})).status,200);
+    assert.equal((await cloudRequest('/attempts',{quizId:recert.id})).status,403);
     assert.equal((await cloudRequest('/attempts',{quizId:'pqo-treino-risco'})).status,403);
 
     const cardOrder=await (await cloudRequest('/orders',{prepId:'pqo-risco',offer:'all',amount:1})).json();
@@ -127,7 +138,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     card.value=49.9;
     assert.equal((await notify(cardEvent)).status,200);
     assert.equal((await currentUser()).allModules,true);
-    assert.equal(catalogInfo.quizzes.length,8);
+    assert.equal(catalogInfo.quizzes.length,9);
     let otherAttempt;
     for(const quiz of catalogInfo.quizzes){
       const attempt=await cloudRequest('/attempts',{quizId:quiz.id});
@@ -147,8 +158,8 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     pix.status='REFUNDED';
     assert.equal((await notify({...event,id:'qa-refunded',event:'PAYMENT_REFUNDED'})).status,200);
     assert.equal((await currentUser()).hasAccess,false);
-    for(const {id,offer,billingType} of checkoutCases.slice(2)){
-      const created=await cloudRequest('/orders',{prepId:'pqo',offer});
+    for(const {id,offer,billingType,prepId='pqo'} of checkoutCases.slice(2)){
+      const created=await cloudRequest('/orders',{prepId,offer});
       assert.equal(created.status,200);
       assert.match((await created.json()).url,/checkoutSession/);
       const payment=payments.get(id);
@@ -163,7 +174,9 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
       const buyer=await currentUser();
       assert.equal(buyer.hasAccess,true);
       assert.equal(buyer.allModules,offer==='all');
-      assert.deepEqual(buyer.moduleIds,offer==='module'?['pqo']:[]);
+      assert.deepEqual(buyer.moduleIds,offer==='module'?[recertId]:[]);
+      assert.equal((await cloudRequest('/attempts',{quizId:recert.id})).status,200);
+      assert.equal((await cloudRequest('/attempts',{quizId:operationsQuiz})).status,offer==='all'?200:403);
       assert.equal((await cloudRequest('/attempts',{quizId:'pqo-treino-risco'})).status,offer==='all'?200:403);
       payment.status='REFUNDED';
       assert.equal((await notify({id:id+'_refunded',event:'PAYMENT_REFUNDED',payment:{id,checkoutSession:payment.checkoutSession}})).status,200);
@@ -200,7 +213,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     await nav('checkout?offer=all','.pricing-grid');
     assert.equal(await page.locator('[data-action="confirm-payment"]').count(),0);
     assert.match(await page.locator('main').innerText(),/Compras ainda indisponíveis/);
-    assert.equal(await page.locator('select[name=prep] option').count(),8);
+    assert.equal(await page.locator('select[name=prep] option').count(),9);
     assert.equal(await page.locator('.pricing-card--all.is-selected').count(),1);
     const verifyPlanLayout=async()=>{
       for(const width of [320,390,1440]){
@@ -228,7 +241,10 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     assert.match(await preview.innerText(),/Guia oficial e manual do PQO/);
     assert.match(await page.getByRole('link',{name:'Escolher módulo',exact:true}).getAttribute('href'),/prep=pqo-custodia/);
     const bundle=page.locator('#conteudo-pacote');
-    assert.equal(await bundle.locator('.pricing-track').count(),8);
+    assert.equal(await bundle.locator('.pricing-track').count(),9);
+    const recertOffer=bundle.locator('.pricing-track').filter({has:page.getByRole('heading',{name:'Recertificação - PQO Operações',exact:true})});
+    assert.match(await recertOffer.innerText(),/30 questões · 180 min/);
+    assert.match(await recertOffer.innerText(),/Guia Por Dentro da B3/);
     assert.match(await bundle.innerText(),/Treino de cadastro/);
     await page.getByRole('link',{name:'Escolher pacote',exact:true}).click();
     await page.getByRole('heading',{name:'Escolha seu acesso',exact:true,level:1}).waitFor();

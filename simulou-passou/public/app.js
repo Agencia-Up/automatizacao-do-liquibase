@@ -53,7 +53,7 @@ function landing() {
   ];
   const faqs = [
     ['O que é o Simulou Passou?', 'É uma plataforma de simulação de provas. Você escolhe uma das provas ou certificações disponíveis, faz os simulados, revisa suas respostas e acompanha o desempenho. Os materiais de apoio ajudam a reforçar os assuntos.'],
-    ['Quais provas e certificações estão disponíveis?', 'O catálogo reúne sete trilhas de certificação PQO e um treino para Cadastro de Clientes. Confira as questões, o tempo e os assuntos na página de cada simulado.'],
+    ['Quais provas e certificações estão disponíveis?', 'Confira no catálogo as trilhas PQO publicadas, incluindo os simulados e materiais de cada módulo. A página de cada simulado mostra a quantidade de questões, o tempo e as regras da prova.'],
     ['Preciso pagar todo mês?', 'Você paga uma vez: R$ 29,90 por um módulo ou R$ 49,90 pelo acesso vitalício a todos os módulos.'],
     ['Preciso comprar cada certificação separadamente?', 'A compra individual libera o módulo escolhido. O pacote completo libera todos os módulos do catálogo.'],
     ['Posso repetir os simulados?', 'Sim, conforme as regras de cada simulado. Cada tentativa é registrada separadamente para você revisar e comparar seus resultados.'],

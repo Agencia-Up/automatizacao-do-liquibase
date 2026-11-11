@@ -1,5 +1,6 @@
 import {createHash} from 'node:crypto';
 import {appliedCore,appliedSpecialty} from './pqo-certification-bank.mjs';
+import {operationsRecertification} from './pqo-recertification-bank.mjs';
 
 const common = [
  ['SFN','Uma corretora precisa conferir quem estabelece diretrizes gerais para o mercado de valores mobiliários e quem fiscaliza as companhias abertas. Qual divisão faz sentido?','O CMN define diretrizes gerais e a CVM regula e fiscaliza o mercado de valores mobiliários.','A CVM define a meta de inflação e o CMN fiscaliza as companhias abertas.','A B3 define as diretrizes e o Banco Central fiscaliza exclusivamente as companhias abertas.','A Ancord define as diretrizes e a B3 atua como autoridade monetária.','CMN e CVM exercem papéis distintos. A CVM atua no mercado de valores mobiliários, que inclui companhias abertas e intermediários.'],
@@ -93,6 +94,32 @@ const specialistChapters = {
   'PRSAC':['compliance'],
 };
 const digest=value=>createHash('sha256').update(value).digest('hex');
+const recertificationId='pqo-recertificacao-operacoes';
+
+function addOperationsRecertification(catalog){
+  const prepId=recertificationId;
+  const name='Recertificação - PQO Operações';
+  const questions=operationsRecertification.map(([subject,prompt,answer,b,c,d,explanation])=>{
+    const id=prepId+'-q-'+digest(prompt).slice(0,16);
+    const options=[answer,b,c,d].sort((left,right)=>digest(id+left).localeCompare(digest(id+right)));
+    return {id,prepId,subject,type:'objective',prompt,options,correct:String(options.indexOf(answer)),explanation,points:1,status:'published'};
+  }).sort((left,right)=>left.id.localeCompare(right.id));
+  const subjects=[...new Set(operationsRecertification.map(([subject])=>subject))];
+  catalog.preparations.push({
+    id:prepId,name,description:'Prepare-se para renovar o PQO de Operações com questões baseadas no quadro de recertificação do Guia Por Dentro da B3.',
+    status:'published',demo:false,color:'blue',track:'pqo',training:false,subjects,
+  });
+  catalog.materials.push({
+    id:prepId+'-guia',prepId,module:'Recertificação PQO',title:'Guia Por Dentro da B3 · quadro de recertificação (p. 11)',
+    format:'link',body:'https://edu.b3.com.br/documents/d/guest/guia_por_dentro_da_b3_compactado-final1?download=true',status:'published',
+  });
+  catalog.questions.push(...questions);
+  catalog.quizzes.push({
+    id:prepId,prepId,name,
+    description:'Simulado autoral com 30 questões, 3 horas, quatro alternativas por questão e mínimo de 60% de acertos. Conteúdo baseado no quadro de recertificação de Operações da B3.',
+    questionIds:questions.map(question=>question.id),durationMinutes:180,passPercent:60,maxAttempts:null,review:true,calculator:true,status:'published',
+  });
+}
 
 function chooseExam(id){
   const specialist=[...Object.values(focused).flat(),...appliedSpecialty].filter(([subject])=>specialistChapters[subject]?.includes(id));
@@ -145,6 +172,7 @@ export function pqoCatalog({practice=false}={}){
     });
     catalog.quizzes.push({id:'pqo-treino-'+id,prepId,name:training?'Treino de cadastro':name+(exam?' · Simulado de certificação':' · Simulado de prática'),description:training?'Questões autorais de apoio à capacitação.':exam?'60 questões autorais, organizadas pelos capítulos do guia da B3. Formato de certificação: 3 horas, quatro alternativas por questão e nota mínima de 60%.':'30 questões autorais para praticar os temas da certificação. O exame de certificação tem 60 questões.',questionIds:(examQuestions||questions).map(q=>q.id),durationMinutes:training?30:exam?180:90,passPercent:training?null:60,maxAttempts:null,review:true,calculator:!training,status:'published'});
   }
+  if(!practice)addOperationsRecertification(catalog);
   return catalog;
 }
 
