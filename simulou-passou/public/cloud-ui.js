@@ -103,10 +103,12 @@ export function planComparison({data,tracks,selected,prices,actions,money,icon,E
   </div>`;
 }
 
-export function cloudCheckout(data,{bar,brand,link,notice,E,select,money,icon},query,guestEmail=''){
+export function cloudCheckout(data,{bar,brand,link,notice,E,select,money,icon},query){
   const choices=data.preparations.filter(p=>p.track==='pqo'&&p.status==='published');
-  const selected=choices.find(p=>p.id===query.get('prep'))||choices[0];
+  const prep=query.get('prep');
+  const selected=choices.find(p=>p.id===prep)||(!prep?choices[0]:null);
   const offer=query.get('offer')==='all'?'all':'module';
+  const all=offer==='all';
   const prices=data.offers||{module:2990,all:4990};
   const owns=plan=>!!data.user&&(data.user.allModules===true
     ||(plan==='module'&&data.user.moduleIds?.includes(selected?.id)===true)
@@ -128,41 +130,67 @@ export function cloudCheckout(data,{bar,brand,link,notice,E,select,money,icon},q
   }else if(feedback==='cancelado'){
     status=notice('A sessão de pagamento foi encerrada. Você pode iniciar outra quando quiser.');
   }
-  const contact=guest&&!guestReturn&&selected?`<div class="pricing-status checkout-contact">
-    <div class="field">
-      <label for="guest-checkout-email">E-mail para receber o acesso</label>
-      <input id="guest-checkout-email" type="email" required maxlength="254" autocomplete="email" value="${E(guestEmail)}" aria-describedby="guest-checkout-help">
-      <small id="guest-checkout-help">Pague por Pix ou cartão no Asaas. Depois, use este mesmo e-mail para entrar ou criar sua conta.</small>
-    </div>
-  </div>`:'';
-  const form=plan=>{
-    const all=plan==='all';
-    const moduleField=all?`<input type="hidden" name="prep" value="${E(selected.id)}">`
-      :planModuleField(choices,selected,select);
-    const goTo=all?'#/simulados':'#/simulados?prep='+encodeURIComponent(selected.id);
-    const cta=owns(plan)?link('Abrir simulados',goTo,'pricing-cta')
-      :guestReturn?link('Voltar aos planos','#/checkout','pricing-cta')
-      :feedback==='retorno'&&plan===offer?'<p class="pricing-unavailable">Confirmação pendente</p>'
-      :data.checkoutEnabled?`<button class="btn pricing-cta" type="submit">${all?'Comprar pacote':'Comprar módulo'}</button>`
-      :'<p class="pricing-unavailable">Compra indisponível</p>';
-    return `<form class="pricing-action" data-form="checkout-select"><input type="hidden" name="offer" value="${plan}">${moduleField}<div class="form-error" role="alert"></div>${cta}</form>`;
-  };
-  const backToPackage=`<a class="btn pricing-bundle-cta" href="#preco-all" data-scroll="preco-all">Voltar ao pacote de ${money(prices.all)} ${icon('arrow',15)}</a>`;
-  const comparison=selected?planComparison({data,tracks:choices,selected,prices,actions:{module:form('module'),all:form('all')},money,icon,E,backToPackage,selectedOffer:query.has('offer')||query.has('prep')?offer:null})
-    :notice('O catálogo estará disponível no lançamento.');
-  const unavailable=selected&&!data.checkoutEnabled?`<div class="pricing-status">${notice('Compras ainda indisponíveis. Você já pode criar sua conta.')}${!data.user?link('Criar conta','#/cadastro','secondary'):''}</div>`:'';
-  return `${bar()}
-    <header class="public-header">${brand()}${link(data.user?'Meu painel':'Entrar',data.user?'#/inicio':'#/entrar','secondary compact')}</header>
-    <main id="main" class="public-wrap pricing-page">
-      <div class="pricing-heading"><div class="eyebrow">Simulou Passou</div><h1>Escolha seu acesso</h1><p>Compare os planos e escolha quais simulados quer liberar.</p></div>
-      ${status?`<div class="pricing-status">${status}</div>`:''}
-      ${contact}
-      ${comparison}
-      ${unavailable}
+  const header=`${bar()}<header class="public-header">${brand()}${link(data.user?'Meu painel':'Entrar',data.user?'#/inicio':'#/entrar','secondary compact')}</header>`;
+  const bundleUrl='#/checkout?offer=all';
+  if(!query.has('offer')&&!prep&&!feedback){
+    const comparison=selected?planComparison({data,tracks:choices,selected,prices,money,icon,E,actions:{
+      module:`<div class="pricing-action pricing-picker" data-pricing-picker>${planModuleField(choices,selected,select)}${link('Comprar módulo','#/checkout?offer=module&prep='+encodeURIComponent(selected.id),'pricing-cta')}</div>`,
+      all:link('Comprar pacote',bundleUrl,'pricing-cta pricing-action'),
+    },backToPackage:link('Comprar pacote · '+money(prices.all),bundleUrl,'pricing-bundle-cta')})
+      :notice('O catálogo estará disponível em breve.');
+    return `${header}<main id="main" class="public-wrap pricing-page">
+      <div class="pricing-heading"><h1>Escolha seu acesso</h1><p>Compare os planos e escolha quais simulados quer liberar.</p></div>${comparison}
     </main>`;
+  }
+
+  const back=`<a class="back-link" href="#/checkout">${icon('left',15)} Voltar aos planos</a>`;
+  if(!selected)return `${header}<main id="main" class="public-wrap purchase-page">${back}${notice('Esse módulo não está disponível. Volte aos planos para escolher outro.')}</main>`;
+  const title=all?'Pacote completo':selected.name;
+  const quizCount=data.quizzes.filter(q=>q.status==='published'&&(all?choices.some(p=>p.id===q.prepId):q.prepId===selected.id)).length;
+  const active=owns(offer);
+  const goTo=all?'#/simulados':'#/simulados?prep='+encodeURIComponent(selected.id);
+  const form=`<form class="purchase-form" data-form="checkout-select">
+    <input type="hidden" name="offer" value="${offer}"><input type="hidden" name="prep" value="${E(selected.id)}">
+    <section aria-labelledby="purchase-contact-title">
+      <h2 id="purchase-contact-title">Seus dados</h2>
+      <div class="field"><label for="purchase-name">Nome completo</label><input id="purchase-name" name="name" autocomplete="name" required minlength="2" maxlength="100" value="${E(data.user?.name||'')}"></div>
+      <div class="purchase-contact-grid">
+        <div class="field"><label for="purchase-email">E-mail</label><input id="purchase-email" name="email" type="email" autocomplete="email" required maxlength="254" value="${E(data.user?.email||'')}" ${data.user?'readonly':''} aria-describedby="purchase-email-help"></div>
+        <div class="field"><label for="purchase-phone">Telefone com DDD</label><input id="purchase-phone" name="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="(11) 99999-9999" required maxlength="25"></div>
+      </div>
+      <p class="purchase-help" id="purchase-email-help">Use este e-mail para acessar seus simulados depois da compra.</p>
+    </section>
+    <fieldset class="purchase-methods">
+      <legend>Forma de pagamento</legend>
+      <label class="purchase-method"><input type="radio" name="method" value="PIX" required checked><span><strong>Pix</strong><small>QR Code ou Pix Copia e Cola</small></span></label>
+      <label class="purchase-method"><input type="radio" name="method" value="CREDIT_CARD" required><span><strong>Cartão de crédito</strong><small>Pagamento à vista</small></span></label>
+    </fieldset>
+    <div class="form-error" role="alert"></div>
+    <button class="btn full purchase-pay" type="submit">Ir para o pagamento ${icon('arrow',16)}</button>
+    <p class="purchase-secure">${icon('lock',15)} Pagamento processado pelo Asaas</p>
+  </form>`;
+  const payment=feedback==='retorno'?status+(active?link('Abrir simulados',goTo,'full'):'')
+    :active?notice('Este acesso já está liberado para a sua conta.')+link('Abrir simulados',goTo,'full')
+    :!data.checkoutEnabled?notice('Compras indisponíveis no momento.')
+    :(!data.user&&!guest)?link('Entrar para continuar','#/entrar','full')
+    :(status?'<div class="purchase-feedback">'+status+'</div>':'')+form;
+  return `${header}<main id="main" class="public-wrap purchase-page">
+    ${back}
+    <h1>${feedback==='retorno'?'Acompanhe seu pedido':'Finalize sua compra'}</h1>
+    <div class="purchase-layout">
+      <aside class="purchase-summary" aria-labelledby="purchase-summary-title">
+        <h2 id="purchase-summary-title">Resumo do pedido</h2>
+        <div class="purchase-product"><span class="purchase-product-icon">${icon('book',23)}</span><div><span>Simulou Passou</span><h3>${E(title)}</h3></div></div>
+        <p>${all?`Todos os módulos · ${quizCount} simulados`:'Acesso ao módulo selecionado'}</p>
+        <ul><li>${icon('check',15)} Acesso vitalício</li><li>${icon('check',15)} Gabarito comentado e materiais do plano</li></ul>
+        <div class="purchase-total"><div><strong>Total</strong><small>Pagamento único</small></div><strong>${money(prices[offer])}</strong></div>
+      </aside>
+      <section class="purchase-panel" aria-label="Pagamento">${payment}</section>
+    </div>
+  </main>`;
 }
 export function cloudLegal(kind){
-  return kind==='privacy'?`<p>O Simulou Passou é um módulo da Logos IA. O cadastro utiliza seu nome e e-mail para identificar a conta e enviar mensagens de confirmação e recuperação de acesso.</p><p>Anotações, planejamento, registros de foco e tentativas são salvos na sua conta. O navegador também mantém rascunhos temporários para recuperar alterações durante uma interrupção de conexão. Administradores do módulo gerenciam acessos, conteúdo e correções de provas; as telas administrativas não exibem suas notas pessoais.</p><p>A infraestrutura utiliza Supabase para autenticação e armazenamento e a hospedagem da Logos para servir a aplicação. A senha é processada pelo serviço de autenticação; ela não aparece nas telas de administração.</p><p>Para tratar de acesso, correção ou exclusão de dados, utilize os canais oficiais da Logos IA. O aviso completo com identificação do responsável e canal específico será apresentado antes da abertura de vendas.</p>`:`<p>Esta versão está em pré-lançamento. O cadastro e as ferramentas pessoais estão disponíveis; não há cobrança automática ou compra habilitada.</p><p>O catálogo atual contém exemplos demonstrativos. Ele não representa uma preparação completa, um vínculo com certificadoras ou garantia de aprovação. As porcentagens hipotéticas da calculadora são inventadas para demonstração e não estimam sua chance real no exame.</p><p>Os simulados podem ter regras próprias de duração, revisão e limite de tentativas. Consulte essas regras antes de iniciar. Os termos comerciais definitivos, suporte e condições de cancelamento serão disponibilizados antes da abertura de vendas.</p>`;
+  return kind==='privacy'?`<p>O Simulou Passou é um módulo da Logos IA. O cadastro utiliza seu nome e e-mail para identificar a conta e enviar mensagens de confirmação e recuperação de acesso.</p><p>Em uma compra, usamos seu nome, telefone e e-mail para identificar o pedido e liberar seu acesso. O Asaas processa o pagamento.</p><p>Anotações, planejamento, registros de foco e tentativas são salvos na sua conta. O navegador também mantém rascunhos temporários para recuperar alterações durante uma interrupção de conexão. Administradores do módulo gerenciam acessos, conteúdo e correções de provas; as telas administrativas não exibem suas notas pessoais.</p><p>A infraestrutura utiliza Supabase para autenticação e armazenamento e a hospedagem da Logos para servir a aplicação. A senha é processada pelo serviço de autenticação; ela não aparece nas telas de administração.</p><p>Para tratar de acesso, correção ou exclusão de dados, utilize os canais oficiais da Logos IA. O aviso completo com identificação do responsável e canal específico será apresentado antes da abertura de vendas.</p>`:`<p>Esta versão está em pré-lançamento. O cadastro e as ferramentas pessoais estão disponíveis; não há cobrança automática ou compra habilitada.</p><p>O catálogo atual contém exemplos demonstrativos. Ele não representa uma preparação completa, um vínculo com certificadoras ou garantia de aprovação. As porcentagens hipotéticas da calculadora são inventadas para demonstração e não estimam sua chance real no exame.</p><p>Os simulados podem ter regras próprias de duração, revisão e limite de tentativas. Consulte essas regras antes de iniciar. Os termos comerciais definitivos, suporte e condições de cancelamento serão disponibilizados antes da abertura de vendas.</p>`;
 }
 export function cloudAccount(data,h){
   const {heading,field,E,notice,button,link}=h,u=data.user;

@@ -22,16 +22,31 @@ export function createCheckout({config,fetchImpl,origin,basePath,rpc,fault}){
       redirect:'error',
       signal:AbortSignal.timeout(12000),
     });
-    if(!response.ok)throw fault(503,'O provedor de pagamentos está indisponível. Tente novamente em instantes.');
+    if(!response.ok){
+      if(path==='/checkouts'&&body?.customerData&&[400,422].includes(response.status)){
+        const error=await response.json().catch(()=>null);
+        const fields=(Array.isArray(error?.errors)?error.errors:[]).map(item=>item?.code+' '+item?.description).join(' ');
+        if(/customer|pagador|cpf|cnpj|endere[cç]o|postal|cidade|bairro|telefone|phone|e.?mail/i.test(fields)){
+          const {customerData,...checkout}=body;
+          return provider(path,checkout);
+        }
+      }
+      throw fault(503,'O provedor de pagamentos está indisponível. Tente novamente em instantes.');
+    }
     return response.json();
   };
 
-  async function create(user,prep,offer,guest){
+  async function create(user,prep,offer,guest,details){
     if(!configured)throw fault(503,'As vendas ainda não estão habilitadas.');
     if(typeof prep!=='string'||!/^[a-z0-9-]{1,80}$/.test(prep))throw fault(400,'Escolha uma trilha válida.');
     if(!['module','all'].includes(offer))throw fault(400,'Escolha uma opção de acesso.');
     const offerArgs={p_prep:prep,p_mode:mode,p_offer:offer};
-    const order=user
+    const order=details
+      ?await rpc('sp_checkout_claim_details',{
+        p_actor:user?.id??null,p_guest:guest?.key??null,p_email:user?.email??guest?.email,...offerArgs,
+        p_name:details.name,p_phone:details.phone,p_method:details.method
+      })
+      :user
       ?await rpc('sp_checkout_claim_offer',{p_actor:user.id,...offerArgs})
       :await rpc('sp_checkout_claim_guest',{p_guest:guest.key,p_email:guest.email,...offerArgs});
     if(order.state==='disabled')throw fault(503,'As vendas ainda não estão habilitadas.');
@@ -40,11 +55,13 @@ export function createCheckout({config,fetchImpl,origin,basePath,rpc,fault}){
     if(order.state==='guest_paid')return {guestPaid:true};
     if(order.state==='limited')throw fault(429,'Muitas tentativas de pagamento. Aguarde alguns minutos e tente novamente.');
     if(order.state==='ready')return {url:order.url};
+    if(order.state==='different_method')throw fault(409,'Já existe um pagamento aberto por '+(order.method==='PIX'?'Pix':'cartão')+'. Selecione essa opção para reabrir o pagamento.');
     if(order.state==='different_order')throw fault(409,'Conclua ou cancele o pedido anterior antes de escolher outra opção.');
     if(order.state!=='create')throw fault(409,'Já existe um pedido em processamento. Aguarde e tente novamente.');
     const returnUrl=origin+basePath+'/?'+new URLSearchParams({prep,offer})+'&pagamento=';
     const checkout=await provider('/checkouts',{
-      billingTypes:['PIX','CREDIT_CARD'],
+      billingTypes:details?[details.method]:['PIX','CREDIT_CARD'],
+      ...(details?{customerData:{name:details.name,phone:details.phone,email:user?.email??guest?.email}}:{}),
       chargeTypes:['DETACHED'],
       minutesToExpire:30,
       externalReference:order.id,

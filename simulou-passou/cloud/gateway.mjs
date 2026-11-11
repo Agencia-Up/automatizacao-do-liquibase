@@ -65,7 +65,7 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
         try{const session=await supa('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:{refresh_token:jar.sp_refresh},key:publishableKey});token=session.access_token;user=session.user;setSession(session);}catch(e){if(e.status>=500)throw e;clear();}
       }
       if(user&&(user.is_anonymous||!user.email)){user=null;clear();}
-      if(path==='/api/health'&&req.method==='GET'){await rpc('sp_runtime_load',{p_actor:null});return finish({ok:true,module:'simulou-passou',build:'cloud-5',payments:checkout.configured?'configured':'disabled',guestCheckout:guestCheckoutEnabled&&checkout.configured,recoveryEmail:accountMail?'branded':'standard'});}
+      if(path==='/api/health'&&req.method==='GET'){await rpc('sp_runtime_load',{p_actor:null});return finish({ok:true,module:'simulou-passou',build:'cloud-6',payments:checkout.configured?'configured':'disabled',guestCheckout:guestCheckoutEnabled&&checkout.configured,recoveryEmail:accountMail?'branded':'standard'});}
       if(path==='/api/auth/demo'||path.includes('/demo-event'))return finish({error:'Operação de demonstração indisponível.'},404);
       if(path==='/api/auth/register'&&req.method==='POST'){
         const name=String(body.name||'').trim().slice(0,100),email=String(body.email||'').trim().toLowerCase(),password=String(body.password||'');
@@ -147,6 +147,18 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
       }
       if(path.startsWith('/api/auth/'))throw fault(404,'Operação não encontrada.');
       const openingOrder=path==='/api/orders'&&req.method==='POST';
+      if(openingOrder&&(!body||typeof body!=='object'||Array.isArray(body)))throw fault(400,'Solicitação inválida.');
+      let checkoutDetails;
+      if(openingOrder&&('method' in body||'name' in body||'phone' in body)){
+        const name=typeof body.name==='string'?body.name.trim().replace(/\s+/g,' '):'';
+        const rawPhone=typeof body.phone==='string'?body.phone.trim():'';
+        const digits=rawPhone.replace(/\D/g,'');
+        const phone=digits.length>11&&digits.startsWith('55')?digits.slice(2):digits;
+        if(name.length<2||name.length>100||!/[\p{L}]/u.test(name))throw fault(400,'Informe seu nome completo.');
+        if(rawPhone.length>25||!/^\+?[0-9() .-]+$/.test(rawPhone)||!(/^[1-9]\d{9,10}$/).test(phone))throw fault(400,'Informe um telefone com DDD.');
+        if(!['PIX','CREDIT_CARD'].includes(body.method))throw fault(400,'Escolha Pix ou cartão de crédito.');
+        checkoutDetails={name,phone,method:body.method};
+      }
       if(guestCheckoutEnabled&&user?.email_confirmed_at&&(path==='/api/bootstrap'||openingOrder)){
         await rpc('sp_checkout_link_guest',{p_actor:user.id,p_email:user.email,p_mode:checkout.mode});
       }
@@ -157,10 +169,10 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
         const nonce=/^[a-f0-9]{64}$/.test(previousGuest)?previousGuest:randomBytes(32).toString('hex');
         if(nonce!==previousGuest)cookie('sp_guest',nonce,7*86400);
         const key=createHash('sha256').update(serviceKey+'\ncheckout\n'+nonce).digest('hex');
-        return finish(await checkout.create(null,body.prepId,body.offer,{key,email}));
+        return finish(await checkout.create(null,body.prepId,body.offer,{key,email},checkoutDetails));
       }
       if(!user&&path!=='/api/bootstrap')throw fault(401,'Entre na sua conta para continuar.');
-      if(openingOrder)return finish(await checkout.create(user,body.prepId,body.offer));
+      if(openingOrder)return finish(await checkout.create(user,body.prepId,body.offer,null,checkoutDetails));
       if(path.startsWith('/api/orders/')||path.includes('/payment'))throw fault(404,'Operação não encontrada.');
       if(/^\/api\/admin\/access\/[^/]+$/.test(path)&&req.method==='PATCH'){
         const state=await rpc('sp_runtime_load',{p_actor:user.id});if(!state.admin)throw fault(403,'Acesso exclusivo da administração.');

@@ -14,6 +14,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/checkout-offers.sql'),'utf8'));
     await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/checkout-provider.sql'),'utf8'));
     await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/checkout-guest.sql'),'utf8'));
+    await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/checkout-details.sql'),'utf8'));
     await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/account-mail.sql'),'utf8'));
     const data=seed(),catalog=Object.fromEntries(['preparations','questions','materials','quizzes'].map(k=>[k,data[k]]));
     await db.query('update simulou_passou_private.catalog set body=$1::jsonb',[JSON.stringify(catalog)]);
@@ -48,7 +49,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
       {id:'pay_guest_module',offer:'module',value:29.9,billingType:'PIX',prepId:recertId},
       {id:'pay_guest_all',offer:'all',value:49.9,billingType:'CREDIT_CARD'},
     ];
-    let checkoutCreates=0, checkoutLookups=0;
+    let checkoutCreates=0, checkoutLookups=0, prefillRejected=0;
     const recoveryKey='b'.repeat(56);
     let capturedMail, verifiedLinks=0;
     const fetchImpl=async(url,options)=>{
@@ -63,10 +64,18 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
       if(u.origin==='https://api-sandbox.asaas.com'){
         assert.equal(options.headers.access_token,'sandbox-provider-test-only');
         if(u.pathname==='/v3/checkouts'){
+          const {id,offer,value,billingType,prepId}=checkoutCases[checkoutCreates];
+          const isGuest=id.startsWith('pay_guest_');
+          assert.deepEqual(b.billingTypes,isGuest?[billingType]:['PIX','CREDIT_CARD']);
+          if(isGuest&&b.customerData){
+            assert.deepEqual(b.customerData,{name:'Cliente Sintético',email:'buyer@example.test',phone:'11987654321'});
+            if(billingType==='CREDIT_CARD'){
+              prefillRejected++;
+              return reply({errors:[{code:'invalid_object',description:'CPF do pagador é obrigatório'}]},400);
+            }
+          }else if(isGuest)assert.equal(billingType,'CREDIT_CARD');
           checkoutCreates++;
           const checkoutId='sandbox-checkout-'+checkoutCreates;
-          assert.deepEqual(b.billingTypes,['PIX','CREDIT_CARD']);
-          const {id,offer,value,billingType,prepId}=checkoutCases[checkoutCreates-1];
           assert.equal(b.items[0].value,value);
           assert.match(b.items[0].name,offer==='all'?/Todos os módulos/:prepId===recertId?/Recertificação - PQO Operações/:/Operações/);
           payments.set(id,{checkoutSession:checkoutId,status:'PENDING',value,billingType});
@@ -101,7 +110,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
         return ['token-admin','token-student','token-buyer'].includes(token)?reply(user(token.slice(6))):reply({},401);
       }
       if(u.pathname==='/auth/v1/logout'||u.pathname==='/auth/v1/recover')return reply({});
-      const name=u.pathname.split('/').at(-1),params={sp_runtime_load:['p_actor'],sp_runtime_commit:['p_actor','p_catalog_revision','p_catalog','p_members'],sp_module_access:['p_actor','p_user','p_active'],sp_checkout_claim_offer:['p_actor','p_prep','p_mode','p_offer'],sp_checkout_claim_guest:['p_guest','p_email','p_prep','p_mode','p_offer'],sp_checkout_link_guest:['p_actor','p_email','p_mode'],sp_checkout_attach:['p_order','p_provider','p_url'],sp_checkout_event:['p_provider','p_mode','p_event','p_state','p_amount'],sp_checkout_known:['p_provider','p_mode'],sp_mail_reserve:['p_recipient','p_client']}[name];
+      const name=u.pathname.split('/').at(-1),params={sp_runtime_load:['p_actor'],sp_runtime_commit:['p_actor','p_catalog_revision','p_catalog','p_members'],sp_module_access:['p_actor','p_user','p_active'],sp_checkout_claim_offer:['p_actor','p_prep','p_mode','p_offer'],sp_checkout_claim_guest:['p_guest','p_email','p_prep','p_mode','p_offer'],sp_checkout_claim_details:['p_actor','p_guest','p_email','p_prep','p_mode','p_offer','p_name','p_phone','p_method'],sp_checkout_link_guest:['p_actor','p_email','p_mode'],sp_checkout_attach:['p_order','p_provider','p_url'],sp_checkout_event:['p_provider','p_mode','p_event','p_state','p_amount'],sp_checkout_known:['p_provider','p_mode'],sp_mail_reserve:['p_recipient','p_client']}[name];
       if(!params)throw Error('Unknown mock endpoint');
       try{const result=await db.query(`select public.${name}(${params.map((_,i)=>'$'+(i+1)).join(',')}) as result`,params.map(k=>b[k]&&typeof b[k]==='object'?JSON.stringify(b[k]):b[k]));return reply(result.rows[0].result);}
       catch(e){return reply({code:e.code},e.code==='40001'?409:e.code==='PT429'?429:400);}
@@ -215,7 +224,8 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     assert.equal((await cloudRequest('/orders',{prepId:'pqo',offer:'all',email:'buyer@example.test'},{cookie:'',origin:'https://unauthorized.example'})).status,403);
     const buyerContext=async token=>(await (await cloudRequest('/bootstrap',null,{cookie:'sp_access='+token})).json()).user;
     for(const {id,offer,billingType,prepId='pqo'} of checkoutCases.slice(4)){
-      const body={prepId,offer,email:'BUYER@example.test',amount:1};
+      const body={prepId,offer,email:'BUYER@example.test',name:' Cliente   Sintético ',phone:'+55 (11) 98765-4321',method:billingType,amount:1};
+      assert.equal((await cloudRequest('/orders',{...body,phone:'123'},{cookie:''})).status,400);
       const order=await cloudRequest('/orders',body,{cookie:''});
       assert.equal(order.status,200);
       const created=await order.json();
@@ -223,6 +233,8 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
       const guestCookie=order.headers.getSetCookie().find(cookie=>cookie.startsWith('sp_guest=')).split(';')[0];
       assert.match(guestCookie,/^sp_guest=[a-f0-9]{64}$/);
       assert.deepEqual(await (await cloudRequest('/orders',body,{cookie:guestCookie})).json(),created);
+      const otherMethod=billingType==='PIX'?'CREDIT_CARD':'PIX';
+      assert.equal((await cloudRequest('/orders',{...body,method:otherMethod},{cookie:guestCookie})).status,409);
       assert.equal((await buyerContext('token-buyer')).hasAccess,false);
       const payment=payments.get(id);
       payment.status=billingType==='PIX'?'RECEIVED':'CONFIRMED';
@@ -240,6 +252,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
       assert.equal((await buyerContext('token-buyer')).hasAccess,false);
     }
     assert.equal(checkoutCreates,checkoutCases.length);
+    assert.equal(prefillRejected,1);
     await db.exec('update simulou_passou_private.settings set checkout_enabled=false where id;');
     browser=await chromium.launch({channel:'chrome',headless:true});const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[];
     page.on('pageerror',e=>errors.push(e.message));const nav=async(route,selector='h1:visible')=>{await page.goto(base+'/simulou-passou/#/'+route);await page.locator(selector).first().waitFor();};
@@ -283,11 +296,11 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     await nav('cadastro');await page.getByLabel('Seu nome',{exact:true}).fill('Pessoa de teste');await page.getByLabel('E-mail',{exact:true}).fill('student@example.test');await page.getByLabel('Senha',{exact:true}).fill('Synthetic123!');await page.getByRole('button',{name:'Criar conta',exact:true}).click();await page.getByText('Confira seu e-mail para confirmar o cadastro e depois entre na sua conta.',{exact:true}).waitFor();
     await nav('entrar');await page.getByLabel('E-mail',{exact:true}).fill('student@example.test');await page.getByLabel('Senha',{exact:true}).fill('Synthetic123!');await page.getByRole('button',{name:'Entrar',exact:true}).click();await page.locator('.workspace-overview').waitFor();
     await nav('anotacoes','.notes-layout');await page.getByLabel('Título',{exact:true}).fill('Nota em nuvem');await page.getByLabel('Sua anotação',{exact:true}).fill('Persistência e isolamento verificados.');await page.getByRole('button',{name:'Salvar anotação',exact:false}).click();await page.locator('.note-list-item').waitFor();await page.reload();await page.locator('.note-list-item').waitFor();
-    await nav('checkout?offer=all','.pricing-grid');
+    await nav('checkout?offer=all','.purchase-layout');
     assert.equal(await page.locator('[data-action="confirm-payment"]').count(),0);
-    assert.match(await page.locator('main').innerText(),/Compras ainda indisponíveis/);
-    assert.equal(await page.locator('select[name=prep] option').count(),9);
-    assert.equal(await page.locator('.pricing-card--all.is-selected').count(),1);
+    assert.match(await page.locator('main').innerText(),/Compras indisponíveis no momento/);
+    assert.equal(await page.locator('.purchase-form').count(),0);
+    assert.match(await page.locator('.purchase-summary').innerText(),/Pacote completo/);
     const verifyPlanLayout=async()=>{
       for(const width of [320,390,1440]){
         await page.setViewportSize({width,height:900});
@@ -319,14 +332,14 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     assert.match(await recertOffer.innerText(),/30 questões · 180 min/);
     assert.match(await recertOffer.innerText(),/Guia Por Dentro da B3/);
     assert.match(await bundle.innerText(),/Treino de cadastro/);
-    await page.getByRole('link',{name:'Escolher pacote',exact:true}).click();
+    await nav('checkout','.pricing-grid');
     await page.getByRole('heading',{name:'Escolha seu acesso',exact:true,level:1}).waitFor();
     const individual=page.getByRole('article',{name:'Um módulo',exact:true});
     const packageAll=page.getByRole('article',{name:'Todos os módulos',exact:true});
     assert.match(await individual.innerText(),/29,90/);
     assert.match(await packageAll.innerText(),/49,90/);
-    await individual.getByRole('button',{name:'Comprar módulo'}).waitFor();
-    await packageAll.getByRole('button',{name:'Comprar pacote'}).waitFor();
+    await individual.getByRole('link',{name:'Comprar módulo'}).waitFor();
+    await packageAll.getByRole('link',{name:'Comprar pacote',exact:true}).waitFor();
     await verifyPlanLayout();
     await page.screenshot({path:path.join(__dirname,'../qa/planos-checkout-desktop.png')});
     await bundle.screenshot({path:path.join(__dirname,'../qa/planos-conteudo-pacote.png')});
@@ -339,28 +352,44 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
       await route.fulfill({status:400,json:{error:'Pedido interceptado pela verificação local.'}});
     });
     await page.getByLabel('Qual módulo?').selectOption('pqo-risco');
-    await page.waitForURL('**/checkout?offer=module&prep=pqo-risco');
     await preview.getByRole('heading',{name:'Risco',exact:true}).waitFor();
-    await individual.getByRole('button',{name:'Comprar módulo'}).click();
-    await individual.getByRole('alert').filter({hasText:'Pedido interceptado'}).waitFor();
-    await packageAll.getByRole('button',{name:'Comprar pacote'}).click();
-    await packageAll.getByRole('alert').filter({hasText:'Pedido interceptado'}).waitFor();
-    assert.deepEqual(purchaseRequests,[{prepId:'pqo-risco',offer:'module'},{prepId:'pqo-risco',offer:'all'}]);
+    await individual.getByRole('link',{name:'Comprar módulo'}).click();
+    await page.waitForURL('**/checkout?offer=module&prep=pqo-risco');
+    const summary=page.locator('.purchase-summary');
+    await summary.getByRole('heading',{name:/Risco/}).waitFor();
+    assert.match(await summary.innerText(),/29,90/);
+    await page.getByLabel('Nome completo').fill('Aluno de Teste');
+    await page.getByLabel('Telefone com DDD').fill('(11) 99999-9999');
+    await page.getByRole('button',{name:'Ir para o pagamento'}).click();
+    await page.getByRole('alert').filter({hasText:'Pedido interceptado'}).waitFor();
+    assert.deepEqual(purchaseRequests,[{prepId:'pqo-risco',offer:'module',name:'Aluno de Teste',email:'student@example.test',phone:'(11) 99999-9999',method:'PIX'}]);
     assert.equal(checkoutCreates,checkoutCases.length);
     await page.unroute('**/api/orders');
     const guest=await browser.newPage({viewport:{width:390,height:844}});
     try{
       await guest.route('**/api/orders',async route=>{
         assert.equal(route.request().method(),'POST');
-        assert.deepEqual(route.request().postDataJSON(),{prepId:'pqo',offer:'all',email:'student@example.test'});
+        assert.deepEqual(route.request().postDataJSON(),{prepId:'pqo',offer:'all',name:'Aluno de Teste',email:'student@example.test',phone:'(11) 99999-9999',method:'CREDIT_CARD'});
         await route.fulfill({status:200,json:{url:'https://sandbox.asaas.com/checkoutSession/show?id=synthetic-guest'}});
       });
       await guest.route('https://sandbox.asaas.com/checkoutSession/show**',route=>route.fulfill({
         status:200,contentType:'text/html',body:'<h1>Pagamento de teste Asaas</h1>'
       }));
-      await guest.goto(base+'/simulou-passou/#/checkout?offer=all');
-      await guest.getByLabel('E-mail para receber o acesso').fill('student@example.test');
-      await guest.getByRole('button',{name:'Comprar pacote'}).click();
+      await guest.goto(base+'/simulou-passou/');
+      await guest.getByRole('link',{name:'Escolher pacote',exact:true}).click();
+      await guest.getByRole('heading',{name:'Finalize sua compra'}).waitFor();
+      assert.match(await guest.locator('.purchase-summary').innerText(),/Pacote completo[\s\S]*49,90/);
+      for(const width of [320,390,1440]){
+        await guest.setViewportSize({width,height:844});
+        assert.equal(await guest.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
+        if(width!==320)await guest.screenshot({path:path.join(__dirname,'../qa/checkout-pacote-'+width+'.png'),fullPage:true});
+      }
+      await guest.setViewportSize({width:390,height:844});
+      await guest.getByLabel('Nome completo').fill('Aluno de Teste');
+      await guest.getByLabel('E-mail',{exact:true}).fill('student@example.test');
+      await guest.getByLabel('Telefone com DDD').fill('(11) 99999-9999');
+      await guest.getByRole('radio',{name:/Cartão de crédito/}).check();
+      await guest.getByRole('button',{name:'Ir para o pagamento'}).click();
       await guest.getByRole('heading',{name:'Pagamento de teste Asaas'}).waitFor();
       await guest.goto(base+'/simulou-passou/?prep=pqo&offer=all&pagamento=retorno');
       await guest.getByRole('button',{name:'Criar conta para acessar'}).waitFor();
@@ -370,7 +399,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
       await guest.getByLabel('Senha',{exact:true}).fill('Synthetic123!');
       await guest.getByRole('button',{name:'Entrar',exact:true}).click();
       await guest.getByText(/Aguardando a confirmação do pagamento/).waitFor();
-      assert.equal(await guest.getByRole('button',{name:'Comprar pacote'}).count(),0);
+      assert.equal(await guest.getByRole('button',{name:'Ir para o pagamento'}).count(),0);
       assert.equal(checkoutCreates,checkoutCases.length);
     }finally{await guest.close();}
     await db.exec('update simulou_passou_private.settings set checkout_enabled=false where id;');
