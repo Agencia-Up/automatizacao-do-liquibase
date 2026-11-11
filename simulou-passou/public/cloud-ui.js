@@ -103,7 +103,7 @@ export function planComparison({data,tracks,selected,prices,actions,money,icon,E
   </div>`;
 }
 
-export function cloudCheckout(data,{bar,brand,link,notice,E,select,money,icon},query){
+export function cloudCheckout(data,{bar,brand,link,notice,E,select,money,icon},query,guestEmail=''){
   const choices=data.preparations.filter(p=>p.track==='pqo'&&p.status==='published');
   const selected=choices.find(p=>p.id===query.get('prep'))||choices[0];
   const offer=query.get('offer')==='all'?'all':'module';
@@ -112,13 +112,37 @@ export function cloudCheckout(data,{bar,brand,link,notice,E,select,money,icon},q
     ||(plan==='module'&&data.user.moduleIds?.includes(selected?.id)===true)
     ||(data.user.allModules===undefined&&data.user.hasAccess));
   const feedback=query.get('pagamento');
-  const status=feedback==='retorno'?notice(owns(offer)?'Pagamento confirmado. Seu acesso está liberado.':'Aguardando a confirmação do pagamento. Atualize esta página para acompanhar.'):feedback==='cancelado'?notice('A sessão de pagamento foi encerrada. Você pode iniciar outra quando quiser.'):'';
+  const guest=data.guestCheckoutEnabled&&!data.user;
+  const guestReturn=guest&&feedback==='retorno';
+  let status='';
+  if(guestReturn){
+    status=`${notice('Entre ou crie sua conta com o mesmo e-mail informado na compra. O acesso aparece assim que o pagamento e o e-mail forem confirmados.')}
+      <div class="actions">
+        <button type="button" class="btn" data-action="checkout-account" data-destination="cadastro">Criar conta para acessar</button>
+        <button type="button" class="btn secondary" data-action="checkout-account" data-destination="entrar">Já tenho conta</button>
+      </div>`;
+  }else if(feedback==='retorno'){
+    status=owns(offer)?notice('Pagamento confirmado. Seu acesso está liberado.')
+      :`${notice('Aguardando a confirmação do pagamento. Confira se entrou com o mesmo e-mail informado na compra.')}
+        <button type="button" class="btn secondary" data-action="retry">Atualizar situação</button>`;
+  }else if(feedback==='cancelado'){
+    status=notice('A sessão de pagamento foi encerrada. Você pode iniciar outra quando quiser.');
+  }
+  const contact=guest&&!guestReturn&&selected?`<div class="pricing-status checkout-contact">
+    <div class="field">
+      <label for="guest-checkout-email">E-mail para receber o acesso</label>
+      <input id="guest-checkout-email" type="email" required maxlength="254" autocomplete="email" value="${E(guestEmail)}" aria-describedby="guest-checkout-help">
+      <small id="guest-checkout-help">Pague por Pix ou cartão no Asaas. Depois, use este mesmo e-mail para entrar ou criar sua conta.</small>
+    </div>
+  </div>`:'';
   const form=plan=>{
     const all=plan==='all';
     const moduleField=all?`<input type="hidden" name="prep" value="${E(selected.id)}">`
       :planModuleField(choices,selected,select);
     const goTo=all?'#/simulados':'#/simulados?prep='+encodeURIComponent(selected.id);
     const cta=owns(plan)?link('Abrir simulados',goTo,'pricing-cta')
+      :guestReturn?link('Voltar aos planos','#/checkout','pricing-cta')
+      :feedback==='retorno'&&plan===offer?'<p class="pricing-unavailable">Confirmação pendente</p>'
       :data.checkoutEnabled?`<button class="btn pricing-cta" type="submit">${all?'Comprar pacote':'Comprar módulo'}</button>`
       :'<p class="pricing-unavailable">Compra indisponível</p>';
     return `<form class="pricing-action" data-form="checkout-select"><input type="hidden" name="offer" value="${plan}">${moduleField}<div class="form-error" role="alert"></div>${cta}</form>`;
@@ -132,6 +156,7 @@ export function cloudCheckout(data,{bar,brand,link,notice,E,select,money,icon},q
     <main id="main" class="public-wrap pricing-page">
       <div class="pricing-heading"><div class="eyebrow">Simulou Passou</div><h1>Escolha seu acesso</h1><p>Compare os planos e escolha quais simulados quer liberar.</p></div>
       ${status?`<div class="pricing-status">${status}</div>`:''}
+      ${contact}
       ${comparison}
       ${unavailable}
     </main>`;

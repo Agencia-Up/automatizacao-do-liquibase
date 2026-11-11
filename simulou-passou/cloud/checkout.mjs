@@ -26,14 +26,19 @@ export function createCheckout({config,fetchImpl,origin,basePath,rpc,fault}){
     return response.json();
   };
 
-  async function create(user,prep,offer){
+  async function create(user,prep,offer,guest){
     if(!configured)throw fault(503,'As vendas ainda não estão habilitadas.');
     if(typeof prep!=='string'||!/^[a-z0-9-]{1,80}$/.test(prep))throw fault(400,'Escolha uma trilha válida.');
     if(!['module','all'].includes(offer))throw fault(400,'Escolha uma opção de acesso.');
-    const order=await rpc('sp_checkout_claim_offer',{p_actor:user.id,p_prep:prep,p_mode:mode,p_offer:offer});
+    const offerArgs={p_prep:prep,p_mode:mode,p_offer:offer};
+    const order=user
+      ?await rpc('sp_checkout_claim_offer',{p_actor:user.id,...offerArgs})
+      :await rpc('sp_checkout_claim_guest',{p_guest:guest.key,p_email:guest.email,...offerArgs});
     if(order.state==='disabled')throw fault(503,'As vendas ainda não estão habilitadas.');
     if(order.state==='unavailable')throw fault(404,'Essa trilha não está disponível.');
     if(order.state==='owned')return {owned:true};
+    if(order.state==='guest_paid')return {guestPaid:true};
+    if(order.state==='limited')throw fault(429,'Muitas tentativas de pagamento. Aguarde alguns minutos e tente novamente.');
     if(order.state==='ready')return {url:order.url};
     if(order.state==='different_order')throw fault(409,'Conclua ou cancele o pedido anterior antes de escolher outra opção.');
     if(order.state!=='create')throw fault(409,'Já existe um pedido em processamento. Aguarde e tente novamente.');

@@ -5,14 +5,15 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
   const {PGlite}=await import('@electric-sql/pglite');
   const {createApp}=await import('../server.mjs'),{createCloudGateway}=await import('../cloud/gateway.mjs'),{seed}=await import('../seed.mjs');
   const {pqoCatalog}=await import('../pqo-catalog.mjs');
-  const db=new PGlite(),a='11111111-1111-4111-8111-111111111111',m='22222222-2222-4222-8222-222222222222';
+  const db=new PGlite(),a='11111111-1111-4111-8111-111111111111',m='22222222-2222-4222-8222-222222222222',buyerId='33333333-3333-4333-8333-333333333333';
   let browser,server;
   try{
-    await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;create schema auth;create table auth.users(id uuid primary key);insert into auth.users values('${a}'),('${m}');`);
+    await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;create schema auth;create table auth.users(id uuid primary key);insert into auth.users values('${a}'),('${m}'),('${buyerId}');`);
     await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/schema.sql'),'utf8'));
     await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/checkout.sql'),'utf8'));
     await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/checkout-offers.sql'),'utf8'));
     await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/checkout-provider.sql'),'utf8'));
+    await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/checkout-guest.sql'),'utf8'));
     await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/account-mail.sql'),'utf8'));
     const data=seed(),catalog=Object.fromEntries(['preparations','questions','materials','quizzes'].map(k=>[k,data[k]]));
     await db.query('update simulou_passou_private.catalog set body=$1::jsonb',[JSON.stringify(catalog)]);
@@ -44,13 +45,15 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
       {id:'pay_synthetic_card',offer:'all',value:49.9,billingType:'CREDIT_CARD'},
       {id:'pay_synthetic_card_module',offer:'module',value:29.9,billingType:'CREDIT_CARD',prepId:recertId},
       {id:'pay_synthetic_pix_all',offer:'all',value:49.9,billingType:'PIX'},
+      {id:'pay_guest_module',offer:'module',value:29.9,billingType:'PIX',prepId:recertId},
+      {id:'pay_guest_all',offer:'all',value:49.9,billingType:'CREDIT_CARD'},
     ];
     let checkoutCreates=0, checkoutLookups=0;
     const recoveryKey='b'.repeat(56);
     let capturedMail, verifiedLinks=0;
     const fetchImpl=async(url,options)=>{
       const u=new URL(url),b=options.body?JSON.parse(options.body):{},token=options.headers.Authorization?.slice(7);
-      const user=role=>({id:role==='admin'?m:a,email:role+'@example.test',user_metadata:{name:role},created_at:'2026-01-01T00:00:00Z'});
+      const user=role=>({id:role==='admin'?m:role==='buyer'?buyerId:a,email:role+'@example.test',user_metadata:{name:role},created_at:'2026-01-01T00:00:00Z',email_confirmed_at:'2026-01-01T00:00:00Z'});
       const reply=(data,status=200)=>new Response(JSON.stringify(data),{status});
       if(u.origin==='https://api.resend.com'){
         assert.equal(options.headers.Authorization,'Bearer mail-qa-only');
@@ -93,9 +96,12 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
         assert.equal(b.password,'NewSynthetic123!');
         return reply(user('student'));
       }
-      if(u.pathname==='/auth/v1/user')return token==='token-admin'||token==='token-student'?reply(user(token.slice(6))):reply({},401);
+      if(u.pathname==='/auth/v1/user'){
+        if(token==='token-unconfirmed')return reply({...user('buyer'),email_confirmed_at:null});
+        return ['token-admin','token-student','token-buyer'].includes(token)?reply(user(token.slice(6))):reply({},401);
+      }
       if(u.pathname==='/auth/v1/logout'||u.pathname==='/auth/v1/recover')return reply({});
-      const name=u.pathname.split('/').at(-1),params={sp_runtime_load:['p_actor'],sp_runtime_commit:['p_actor','p_catalog_revision','p_catalog','p_members'],sp_module_access:['p_actor','p_user','p_active'],sp_checkout_claim_offer:['p_actor','p_prep','p_mode','p_offer'],sp_checkout_attach:['p_order','p_provider','p_url'],sp_checkout_event:['p_provider','p_mode','p_event','p_state','p_amount'],sp_checkout_known:['p_provider','p_mode'],sp_mail_reserve:['p_recipient','p_client']}[name];
+      const name=u.pathname.split('/').at(-1),params={sp_runtime_load:['p_actor'],sp_runtime_commit:['p_actor','p_catalog_revision','p_catalog','p_members'],sp_module_access:['p_actor','p_user','p_active'],sp_checkout_claim_offer:['p_actor','p_prep','p_mode','p_offer'],sp_checkout_claim_guest:['p_guest','p_email','p_prep','p_mode','p_offer'],sp_checkout_link_guest:['p_actor','p_email','p_mode'],sp_checkout_attach:['p_order','p_provider','p_url'],sp_checkout_event:['p_provider','p_mode','p_event','p_state','p_amount'],sp_checkout_known:['p_provider','p_mode'],sp_mail_reserve:['p_recipient','p_client']}[name];
       if(!params)throw Error('Unknown mock endpoint');
       try{const result=await db.query(`select public.${name}(${params.map((_,i)=>'$'+(i+1)).join(',')}) as result`,params.map(k=>b[k]&&typeof b[k]==='object'?JSON.stringify(b[k]):b[k]));return reply(result.rows[0].result);}
       catch(e){return reply({code:e.code},e.code==='40001'?409:e.code==='PT429'?429:400);}
@@ -110,7 +116,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     });
     await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
     let timeShift=0;
-    gateway=createCloudGateway({supabaseUrl:'https://db.example.test',serviceKey:'server-qa-only',publishableKey:'public-qa',allowedOrigins:[base],fetchImpl,now:()=>Date.now()+timeShift,resendKey:'mail-qa-only',checkoutConfig:{mode:'sandbox',apiKey:'sandbox-provider-test-only',webhookToken:secret}});
+    gateway=createCloudGateway({supabaseUrl:'https://db.example.test',serviceKey:'server-qa-only',publishableKey:'public-qa',allowedOrigins:[base],fetchImpl,now:()=>Date.now()+timeShift,resendKey:'mail-qa-only',guestCheckoutEnabled:true,checkoutConfig:{mode:'sandbox',apiKey:'sandbox-provider-test-only',webhookToken:secret}});
     const cloudRequest=(path,body,headers={})=>gateway(new Request(base+'/simulou-passou/api'+path,{method:body?'POST':'GET',headers:{origin:base,cookie:'sp_access=token-student',...headers},body:body?JSON.stringify(body):undefined}));
     assert.equal((await cloudRequest('/orders',{prepId:'pqo',offer:'module'})).status,503);
     await db.exec('update simulou_passou_private.settings set checkout_enabled=true where id;');
@@ -181,7 +187,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     pix.status='REFUNDED';
     assert.equal((await notify({...event,id:'qa-refunded',event:'PAYMENT_REFUNDED'})).status,200);
     assert.equal((await currentUser()).hasAccess,false);
-    for(const {id,offer,billingType,prepId='pqo'} of checkoutCases.slice(2)){
+    for(const {id,offer,billingType,prepId='pqo'} of checkoutCases.slice(2,4)){
       const created=await cloudRequest('/orders',{prepId,offer});
       assert.equal(created.status,200);
       assert.match((await created.json()).url,/checkoutSession/);
@@ -204,6 +210,34 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
       payment.status='REFUNDED';
       assert.equal((await notify({id:id+'_refunded',event:'PAYMENT_REFUNDED',payment:{id,checkoutSession:payment.checkoutSession}})).status,200);
       assert.equal((await currentUser()).hasAccess,false);
+    }
+    assert.equal((await cloudRequest('/orders',{prepId:'pqo',offer:'all'},{cookie:''})).status,400);
+    assert.equal((await cloudRequest('/orders',{prepId:'pqo',offer:'all',email:'buyer@example.test'},{cookie:'',origin:'https://unauthorized.example'})).status,403);
+    const buyerContext=async token=>(await (await cloudRequest('/bootstrap',null,{cookie:'sp_access='+token})).json()).user;
+    for(const {id,offer,billingType,prepId='pqo'} of checkoutCases.slice(4)){
+      const body={prepId,offer,email:'BUYER@example.test',amount:1};
+      const order=await cloudRequest('/orders',body,{cookie:''});
+      assert.equal(order.status,200);
+      const created=await order.json();
+      assert.match(created.url,/checkoutSession/);
+      const guestCookie=order.headers.getSetCookie().find(cookie=>cookie.startsWith('sp_guest=')).split(';')[0];
+      assert.match(guestCookie,/^sp_guest=[a-f0-9]{64}$/);
+      assert.deepEqual(await (await cloudRequest('/orders',body,{cookie:guestCookie})).json(),created);
+      assert.equal((await buyerContext('token-buyer')).hasAccess,false);
+      const payment=payments.get(id);
+      payment.status=billingType==='PIX'?'RECEIVED':'CONFIRMED';
+      assert.equal((await notify({id:id+'_paid',event:'PAYMENT_CONFIRMED',payment:{id,checkoutSession:payment.checkoutSession}})).status,200);
+      assert.deepEqual(await (await cloudRequest('/orders',body,{cookie:guestCookie})).json(),{guestPaid:true});
+      assert.equal((await buyerContext('token-unconfirmed')).hasAccess,false);
+      assert.equal((await currentUser()).hasAccess,false);
+      const buyer=await buyerContext('token-buyer');
+      assert.equal(buyer.hasAccess,true);
+      assert.equal(buyer.allModules,offer==='all');
+      assert.deepEqual(buyer.moduleIds,offer==='module'?[recertId]:[]);
+      assert.equal((await cloudRequest('/attempts',{quizId:operationsQuiz},{cookie:'sp_access=token-buyer'})).status,offer==='all'?200:403);
+      payment.status='REFUNDED';
+      assert.equal((await notify({id:id+'_refund',event:'PAYMENT_REFUNDED',payment:{id}})).status,200);
+      assert.equal((await buyerContext('token-buyer')).hasAccess,false);
     }
     assert.equal(checkoutCreates,checkoutCases.length);
     await db.exec('update simulou_passou_private.settings set checkout_enabled=false where id;');
@@ -316,13 +350,27 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     await page.unroute('**/api/orders');
     const guest=await browser.newPage({viewport:{width:390,height:844}});
     try{
+      await guest.route('**/api/orders',async route=>{
+        assert.equal(route.request().method(),'POST');
+        assert.deepEqual(route.request().postDataJSON(),{prepId:'pqo',offer:'all',email:'student@example.test'});
+        await route.fulfill({status:200,json:{url:'https://sandbox.asaas.com/checkoutSession/show?id=synthetic-guest'}});
+      });
+      await guest.route('https://sandbox.asaas.com/checkoutSession/show**',route=>route.fulfill({
+        status:200,contentType:'text/html',body:'<h1>Pagamento de teste Asaas</h1>'
+      }));
       await guest.goto(base+'/simulou-passou/#/checkout?offer=all');
+      await guest.getByLabel('E-mail para receber o acesso').fill('student@example.test');
       await guest.getByRole('button',{name:'Comprar pacote'}).click();
+      await guest.getByRole('heading',{name:'Pagamento de teste Asaas'}).waitFor();
+      await guest.goto(base+'/simulou-passou/?prep=pqo&offer=all&pagamento=retorno');
+      await guest.getByRole('button',{name:'Criar conta para acessar'}).waitFor();
+      await guest.getByRole('button',{name:'Já tenho conta'}).click();
       await guest.getByRole('heading',{name:'Entre na sua conta'}).waitFor();
       await guest.getByLabel('E-mail',{exact:true}).fill('student@example.test');
       await guest.getByLabel('Senha',{exact:true}).fill('Synthetic123!');
       await guest.getByRole('button',{name:'Entrar',exact:true}).click();
-      await guest.locator('.pricing-card--all.is-selected').getByRole('button',{name:'Comprar pacote'}).waitFor();
+      await guest.getByText(/Aguardando a confirmação do pagamento/).waitFor();
+      assert.equal(await guest.getByRole('button',{name:'Comprar pacote'}).count(),0);
       assert.equal(checkoutCreates,checkoutCases.length);
     }finally{await guest.close();}
     await db.exec('update simulou_passou_private.settings set checkout_enabled=false where id;');
