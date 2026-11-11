@@ -46,6 +46,8 @@ export function createCheckout({config,fetchImpl,origin,basePath,rpc,fault}){
     if(!config.itemImage)throw fault(503,'A imagem do produto está indisponível.');
     if(typeof prep!=='string'||!/^[a-z0-9-]{1,80}$/.test(prep))throw fault(400,'Escolha uma trilha válida.');
     if(!['module','all'].includes(offer))throw fault(400,'Escolha uma opção de acesso.');
+    const product=await rpc('sp_checkout_asaas_offer',{p_mode:mode,p_offer:offer});
+    if(!product&&!sandbox)throw fault(503,'Esta oferta ainda não está disponível para pagamento.');
     const offerArgs={p_prep:prep,p_mode:mode,p_offer:offer};
     const order=details
       ?await rpc('sp_checkout_claim_details',{
@@ -64,6 +66,7 @@ export function createCheckout({config,fetchImpl,origin,basePath,rpc,fault}){
     if(order.state==='different_method')throw fault(409,'Já existe um pagamento aberto por '+(order.method==='PIX'?'Pix':'cartão')+'. Selecione essa opção para reabrir o pagamento.');
     if(order.state==='different_order')throw fault(409,'Conclua ou cancele o pedido anterior antes de escolher outra opção.');
     if(order.state!=='create')throw fault(409,'Já existe um pedido em processamento. Aguarde e tente novamente.');
+    if(product&&product.amount!==order.amount)throw fault(503,'O valor da oferta está indisponível para pagamento.');
     const returnUrl=origin+basePath+'/?'+new URLSearchParams({prep,offer})+'&pagamento=';
     const itemName=offer==='all'?'Simulou Passou - Pacote':order.name;
     const itemDescription=offer==='all'?'Acesso a todos os módulos':'Acesso ao módulo '+order.name;
@@ -75,10 +78,11 @@ export function createCheckout({config,fetchImpl,origin,basePath,rpc,fault}){
       externalReference:order.id,
       callback:{successUrl:returnUrl+'retorno',cancelUrl:returnUrl+'cancelado',expiredUrl:returnUrl+'cancelado'},
       items:[{
+        ...(product?{externalReference:product.reference}:{}),
         name:Array.from(itemName).slice(0,30).join(''),
         description:Array.from(itemDescription).slice(0,150).join(''),
         imageBase64:config.itemImage,
-        quantity:1,value:order.amount/100,
+        quantity:1,value:(product?.amount??order.amount)/100,
       }],
     },()=>rpc('sp_checkout_release_rejected',{p_order:order.id,p_mode:mode}));
     if(!checkoutId(checkout.id))throw fault(503,'O provedor não retornou um link de pagamento válido.');

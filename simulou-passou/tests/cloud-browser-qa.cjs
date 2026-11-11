@@ -16,6 +16,8 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/checkout-guest.sql'),'utf8'));
     await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/checkout-details.sql'),'utf8'));
     await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/checkout-retry.sql'),'utf8'));
+    await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/checkout-asaas-offers.sql'),'utf8'));
+    await db.exec("insert into simulou_passou_private.asaas_offers values ('sandbox','module','synthetic-module',2990),('sandbox','all','synthetic-all',4990)");
     await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/account-mail.sql'),'utf8'));
     const data=seed(),catalog=Object.fromEntries(['preparations','questions','materials','quizzes'].map(k=>[k,data[k]]));
     await db.query('update simulou_passou_private.catalog set body=$1::jsonb',[JSON.stringify(catalog)]);
@@ -71,6 +73,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
             return reply({errors:[{code:'invalid_object',description:'Valor inválido'}]},400);
           }
           const {id,offer,value,billingType,prepId}=checkoutCases[checkoutCreates];
+          assert.equal(b.items[0].externalReference,'synthetic-'+offer);
           assert.equal(b.items[0].imageBase64,itemImage);
           assert.ok(Array.from(b.items[0].name).length<=30);
           assert.ok(Array.from(b.items[0].description).length<=150);
@@ -119,7 +122,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
         return ['token-admin','token-student','token-buyer'].includes(token)?reply(user(token.slice(6))):reply({},401);
       }
       if(u.pathname==='/auth/v1/logout'||u.pathname==='/auth/v1/recover')return reply({});
-      const name=u.pathname.split('/').at(-1),params={sp_runtime_load:['p_actor'],sp_runtime_commit:['p_actor','p_catalog_revision','p_catalog','p_members'],sp_module_access:['p_actor','p_user','p_active'],sp_checkout_claim_offer:['p_actor','p_prep','p_mode','p_offer'],sp_checkout_claim_guest:['p_guest','p_email','p_prep','p_mode','p_offer'],sp_checkout_claim_details:['p_actor','p_guest','p_email','p_prep','p_mode','p_offer','p_name','p_phone','p_method'],sp_checkout_link_guest:['p_actor','p_email','p_mode'],sp_checkout_release_rejected:['p_order','p_mode'],sp_checkout_attach:['p_order','p_provider','p_url'],sp_checkout_event:['p_provider','p_mode','p_event','p_state','p_amount'],sp_checkout_known:['p_provider','p_mode'],sp_mail_reserve:['p_recipient','p_client']}[name];
+      const name=u.pathname.split('/').at(-1),params={sp_runtime_load:['p_actor'],sp_runtime_commit:['p_actor','p_catalog_revision','p_catalog','p_members'],sp_module_access:['p_actor','p_user','p_active'],sp_checkout_asaas_offer:['p_mode','p_offer'],sp_checkout_claim_offer:['p_actor','p_prep','p_mode','p_offer'],sp_checkout_claim_guest:['p_guest','p_email','p_prep','p_mode','p_offer'],sp_checkout_claim_details:['p_actor','p_guest','p_email','p_prep','p_mode','p_offer','p_name','p_phone','p_method'],sp_checkout_link_guest:['p_actor','p_email','p_mode'],sp_checkout_release_rejected:['p_order','p_mode'],sp_checkout_attach:['p_order','p_provider','p_url'],sp_checkout_event:['p_provider','p_mode','p_event','p_state','p_amount'],sp_checkout_known:['p_provider','p_mode'],sp_mail_reserve:['p_recipient','p_client']}[name];
       if(!params)throw Error('Unknown mock endpoint');
       try{const result=await db.query(`select public.${name}(${params.map((_,i)=>'$'+(i+1)).join(',')}) as result`,params.map(k=>b[k]&&typeof b[k]==='object'?JSON.stringify(b[k]):b[k]));return reply(result.rows[0].result);}
       catch(e){return reply({code:e.code},e.code==='40001'?409:e.code==='PT429'?429:400);}
