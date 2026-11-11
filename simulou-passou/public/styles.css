@@ -152,6 +152,18 @@
 .pricing-track .pricing-items small,.pricing-track .muted{color:#d2e0df}
 .pricing-catalog .pricing-bundle-cta{margin-top:17px;background:#f5d68f;color:#1d2e30;font-weight:750;text-align:center}
 .pricing-catalog .pricing-bundle-cta:hover{background:#ffe4a3}
+.auth-recovery-logo{display:block;max-width:100%;height:auto}
+.auth-recovery .auth-panel{background:radial-gradient(ellipse at 85% 10%,#eef3e9,transparent 65%),var(--paper)}
+.auth-recovery .auth-card{max-width:435px;padding:30px;border:1px solid #d8e2d9;border-radius:16px;background:#fff;box-shadow:0 16px 44px #17383f0c}
+.auth-recovery .auth-back{margin-bottom:19px}
+.auth-recovery-icon{display:grid;place-items:center;width:44px;height:44px;margin-bottom:15px;border-radius:10px;background:#e9f0e9;color:#31594f}
+.auth-recovery .eyebrow{margin-bottom:8px}
+.auth-recovery #recovery-result:not(:empty){margin-top:16px}
+@media(max-width:600px){
+  .auth-recovery .auth-story .auth-recovery-logo{width:182px}
+  .auth-recovery .auth-panel{padding:18px 16px 28px}
+  .auth-recovery .auth-card{padding:20px}
+}
 @media(max-width:600px){
   .pricing-section{padding-top:44px;padding-bottom:28px}
   .pricing-page{padding-top:20px;padding-bottom:40px}

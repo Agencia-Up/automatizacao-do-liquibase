@@ -1,5 +1,6 @@
-export function cloudAuthPage(kind,{bar,brand,field,icon,hasSession}){
+export function cloudAuthPage(kind,{bar,brand,field,icon,hasSession,hasRecoveryKey}){
   const register=kind==='cadastro',recover=kind==='recuperar',reset=kind==='redefinir';
+  const recovering=recover||reset;
   const title=register?'Crie sua conta':recover?'Recupere sua senha':reset?'Defina uma nova senha':'Entre na sua conta';
   const description=register?'Cadastre-se para acessar sua área de simulados.':recover?'Informe o e-mail cadastrado. Se a conta estiver ativa, você receberá um link de recuperação.':reset?'Use pelo menos 8 caracteres e confirme a nova senha.':'Acesse seus simulados, respostas e histórico.';
   const submit=register?'Criar conta':recover?'Enviar link de recuperação':reset?'Salvar nova senha':'Entrar';
@@ -8,10 +9,24 @@ export function cloudAuthPage(kind,{bar,brand,field,icon,hasSession}){
     +(!reset?field('email','E-mail','','email','required autocomplete="username" maxlength="254"'):'')
     +(!recover?field('password',reset?'Nova senha':'Senha','','password',passwordRules):'')
     +(reset?field('passwordConfirm','Confirme a nova senha','','password',passwordRules):'');
-  const form=reset&&!hasSession
+  const form=reset&&!hasSession&&!hasRecoveryKey
     ? `<p>Abra o link de recuperação no seu e-mail para redefinir a senha.</p><a class="btn full" href="#/recuperar">Solicitar novo link</a>`
     : `<p>${description}</p><form data-form="${register?'register':recover?'recover':reset?'reset':'login'}">${fields}<div class="form-error" role="alert"></div><button class="btn full" type="submit">${submit} ${icon('arrow',15)}</button></form>`;
-  return `${bar()}<main id="main" class="auth-page"><aside class="auth-story">${brand()}<div><div class="eyebrow" style="color:#cfb17b">Simulou Passou</div><h1>Pratique no seu ritmo.</h1><p>Faça simulados por certificação, revise o gabarito e retome de onde parou.</p></div><p class="small">Simulou Passou · Logos IA</p></aside><section class="auth-panel"><div class="auth-card"><a class="auth-back" href="#/">${icon('left',15)} Página inicial</a><h1>${title}</h1>${form}<div id="recovery-result" aria-live="polite"></div><div class="auth-links">${recover||reset?'<a href="#/entrar">Voltar ao login</a>':register?'<span>Já tem uma conta?</span><a href="#/entrar">Entrar</a>':'<a href="#/recuperar">Esqueci minha senha</a><a href="#/cadastro">Criar conta</a>'}</div></div></section></main>`;
+  const logo='<a href="#/" aria-label="Simulou Passou — início"><img class="auth-recovery-logo" src="./simulou-passou-logo.png" width="228" height="56" alt="Simulou Passou"></a>';
+  return `${bar()}<main id="main" class="auth-page${recovering?' auth-recovery':''}">
+    <aside class="auth-story">${recovering?logo:brand()}
+      <div><div class="eyebrow" style="color:#cfb17b">Simulou Passou</div>
+      <h1>${recovering?'Volte aos seus simulados.':'Pratique no seu ritmo.'}</h1>
+      <p>${recovering?'Recupere seu acesso e retome sua prática de onde parou.':'Faça simulados por certificação, revise o gabarito e retome de onde parou.'}</p></div>
+      <p class="small">Simulou Passou · Logos IA</p>
+    </aside>
+    <section class="auth-panel"><div class="auth-card">
+      <a class="auth-back" href="#/">${icon('left',15)} Página inicial</a>
+      ${recovering?`<div class="auth-recovery-icon" aria-hidden="true">${icon('lock',21)}</div><div class="eyebrow">Acesso à sua conta</div>`:''}
+      <h1>${title}</h1>${form}
+      <div id="recovery-result" aria-live="polite"></div>
+      <div class="auth-links">${recovering?'<a href="#/entrar">Voltar ao login</a>'+(reset&&(hasSession||hasRecoveryKey)?'<a href="#/recuperar">Solicitar novo link</a>':''):register?'<span>Já tem uma conta?</span><a href="#/entrar">Entrar</a>':'<a href="#/recuperar">Esqueci minha senha</a><a href="#/cadastro">Criar conta</a>'}</div>
+    </div></section></main>`;
 }
 const shortTrackName=track=>track.name.replace(/^PQO · /,'');
 export const planModuleField=(tracks,selected,select)=>select('prep','Qual módulo?',tracks.map(track=>[

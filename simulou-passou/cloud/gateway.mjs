@@ -1,4 +1,6 @@
 import {createCheckout} from './checkout.mjs';
+import {createAccountMail,recoveryKeyPattern} from './account-mail.mjs';
+import {createHash} from 'node:crypto';
 import {Readable} from 'node:stream';
 import {createApp} from '../server.mjs';
 import {seed} from '../seed.mjs';
@@ -16,23 +18,27 @@ class Capture {
   writeHead(status,headers={}){this.status=status;for(const [k,v] of Object.entries(headers))this.setHeader(k,v);this.headersSent=true;}
   end(value=''){this.body=String(value);}
 }
-export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowedOrigins,basePath='/simulou-passou',fetchImpl=fetch,now=()=>Date.now(),checkoutConfig}){
+export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowedOrigins,basePath='/simulou-passou',fetchImpl=fetch,now=()=>Date.now(),checkoutConfig,resendKey}){
   if(!supabaseUrl||!serviceKey||!publishableKey||!allowedOrigins?.length)throw new Error('Missing server configuration');
   const origins=new Set(allowedOrigins),cookiePath=basePath+'/api';
   async function supa(path,{method='GET',body,token,key=serviceKey}={}){
     const response=await fetchImpl(supabaseUrl+path,{method,headers:{apikey:key,Authorization:'Bearer '+(token||key),'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
     const data=await response.json().catch(()=>({}));
-    if(!response.ok)throw fault(response.status,'Falha no serviço de dados.',data.code);
+    if(!response.ok)throw fault(response.status,'Falha no serviço de dados.',data.code||data.error_code);
     return data;
   }
   const rpc=(name,body)=>supa('/rest/v1/rpc/'+name,{method:'POST',body});
   const checkout=createCheckout({config:checkoutConfig,fetchImpl,origin:allowedOrigins[0],basePath,rpc,fault});
+  const recoveryPage=allowedOrigins[0]+basePath;
+  const accountMail=resendKey?createAccountMail({supa,fetchImpl,baseUrl:recoveryPage,resendKey,fault}):null;
+  const mailKey=value=>createHash('sha256').update(serviceKey+'\n'+value).digest('hex');
   return async function gateway(req){
     const headers=new Headers({'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});
     const origin=req.headers.get('origin');
     if(origins.has(origin)){headers.set('Access-Control-Allow-Origin',origin);headers.set('Access-Control-Allow-Credentials','true');headers.set('Vary','Origin');}
     const finish=(value,status=200)=>new Response(JSON.stringify(value),{status,headers});
     const cookie=(name,value,age)=>headers.append('Set-Cookie',`${name}=${value}; Path=${cookiePath}; HttpOnly; Secure; SameSite=Lax; Max-Age=${age}`);
+    const recoveryCookie=(value,age)=>headers.append('Set-Cookie',`sp_recovery=${value}; Path=${cookiePath}/auth/reset; HttpOnly; Secure; SameSite=Strict; Max-Age=${age}`);
     const clear=()=>{cookie('sp_access','',0);cookie('sp_refresh','',0);};
     const setSession=session=>{cookie('sp_access',session.access_token,Number(session.expires_in)||3600);cookie('sp_refresh',session.refresh_token,7*86400);};
     let user=null;
@@ -59,7 +65,7 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
         try{const session=await supa('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:{refresh_token:jar.sp_refresh},key:publishableKey});token=session.access_token;user=session.user;setSession(session);}catch(e){if(e.status>=500)throw e;clear();}
       }
       if(user&&(user.is_anonymous||!user.email)){user=null;clear();}
-      if(path==='/api/health'&&req.method==='GET'){await rpc('sp_runtime_load',{p_actor:null});return finish({ok:true,module:'simulou-passou',build:'cloud-3',payments:checkout.configured?'configured':'disabled'});}
+      if(path==='/api/health'&&req.method==='GET'){await rpc('sp_runtime_load',{p_actor:null});return finish({ok:true,module:'simulou-passou',build:'cloud-4',payments:checkout.configured?'configured':'disabled',recoveryEmail:accountMail?'branded':'standard'});}
       if(path==='/api/auth/demo'||path.includes('/demo-event'))return finish({error:'Operação de demonstração indisponível.'},404);
       if(path==='/api/auth/register'&&req.method==='POST'){
         const name=String(body.name||'').trim().slice(0,100),email=String(body.email||'').trim().toLowerCase(),password=String(body.password||'');
@@ -80,7 +86,13 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
         const email=String(body.email||'').trim().toLowerCase();
         if(email.length>254||!/^\S+@\S+\.\S+$/.test(email))throw fault(400,'Informe um e-mail válido.');
         try{
-          await supa('/auth/v1/recover?redirect_to='+encodeURIComponent([...origins][0]+basePath+'/'),{method:'POST',body:{email},key:publishableKey});
+          if(accountMail){
+            const client=(req.headers.get('cf-connecting-ip')||req.headers.get('x-forwarded-for')?.split(',')[0]||'').trim().slice(0,80);
+            await rpc('sp_mail_reserve',{p_recipient:mailKey(email),p_client:client?mailKey(client):null});
+            await accountMail({email});
+          }else{
+            await supa('/auth/v1/recover?redirect_to='+encodeURIComponent(recoveryPage+'/'),{method:'POST',body:{email},key:publishableKey});
+          }
         }catch(e){
           if(e.status===429)throw fault(429,'Aguarde alguns minutos antes de pedir outro link.');
           if(![400,403,404,422].includes(e.status))throw fault(503,'Não conseguimos enviar o link agora. Tente novamente em alguns minutos.');
@@ -96,17 +108,42 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
         setSession(session);return finish({ok:true});
       }
       if(path==='/api/auth/reset'&&req.method==='POST'){
-        if(!user)throw fault(401,'Abra o link de recuperação recebido por e-mail.');
-        const password=String(body.password||'');if(password.length<8||password.length>128)throw fault(400,'Use uma senha com 8 a 128 caracteres.');
+        const password=String(body.password||'');
+        if(password.length<8||password.length>128)throw fault(400,'Use uma senha com 8 a 128 caracteres.');
+        const recoveryKey=body.recoveryKey;
+        let resetToken=token;
+        if(recoveryKey!=null){
+          if(typeof recoveryKey!=='string'||!recoveryKeyPattern.test(recoveryKey))throw fault(400,'Link inválido. Solicite um novo link.');
+          const keyDigest=mailKey(recoveryKey);
+          const [previousDigest,previousToken]=(jar.sp_recovery||'').split('~');
+          if(previousDigest===keyDigest&&previousToken){
+            resetToken=previousToken;
+          }else{
+            try{
+              const session=await supa('/auth/v1/verify',{method:'POST',body:{token_hash:recoveryKey,type:'recovery'},key:publishableKey});
+              if(!session.access_token||!session.user?.id)throw fault(401,'Link inválido ou expirado.');
+              resetToken=session.access_token;
+              recoveryCookie(keyDigest+'~'+resetToken,300);
+            }catch(e){
+              if(e.status===429)throw fault(429,'Aguarde alguns minutos e tente novamente.');
+              if(e.status>=500)throw e;
+              throw fault(401,'O link é inválido ou expirou. Solicite um novo link.');
+            }
+          }
+        }else if(!user){
+          throw fault(401,'Abra o link de recuperação recebido por e-mail.');
+        }
         try{
-          await supa('/auth/v1/user',{method:'PUT',token,key:publishableKey,body:{password}});
+          await supa('/auth/v1/user',{method:'PUT',token:resetToken,key:publishableKey,body:{password}});
         }catch(e){
           if(e.code==='same_password')throw fault(422,'Escolha uma senha diferente da atual.');
           if(e.code==='weak_password')throw fault(422,'Escolha uma senha mais forte.');
           if(e.status===401||e.status===403)throw fault(401,'O link perdeu a validade. Solicite um novo link.');
           throw e;
         }
-        await supa('/auth/v1/logout?scope=local',{method:'POST',token,key:publishableKey}).catch(()=>{});clear();return finish({ok:true});
+        await supa('/auth/v1/logout?scope=local',{method:'POST',token:resetToken,key:publishableKey}).catch(()=>{});
+        if(recoveryKey!=null)recoveryCookie('',0);
+        clear();return finish({ok:true});
       }
       if(path.startsWith('/api/auth/'))throw fault(404,'Operação não encontrada.');
       if(!user&&path!=='/api/bootstrap')throw fault(401,'Entre na sua conta para continuar.');

@@ -75,8 +75,8 @@ export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.
       const path=basePath?url.pathname.slice(basePath.length):url.pathname;
       if(!path.startsWith('/api/')){
         const file=path==='/'?'index.html':path.slice(1);const full=resolve(ROOT,'public',file);
-        if(!['index.html','app.js','cloud-ui.js','exam-ui.js','exam-finance.js','exam.css','styles.css','mobile.css','planner.js','roteiro-conteudo.txt','modelo-prova.json'].includes(file))fail(404,'Arquivo não encontrado.');
-        const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.txt':'text/plain; charset=utf-8','.json':'application/json; charset=utf-8'};
+        if(!['index.html','app.js','cloud-ui.js','exam-ui.js','exam-finance.js','exam.css','simulou-passou-logo.png','styles.css','mobile.css','planner.js','roteiro-conteudo.txt','modelo-prova.json'].includes(file))fail(404,'Arquivo não encontrado.');
+        const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png','.txt':'text/plain; charset=utf-8','.json':'application/json; charset=utf-8'};
         res.writeHead(200,{'Content-Type':types[extname(full)],'Cache-Control':'no-store','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"});res.end(readFileSync(full));return;
       }
       res.setHeader('Content-Type','application/json; charset=utf-8');res.setHeader('Cache-Control','no-store');

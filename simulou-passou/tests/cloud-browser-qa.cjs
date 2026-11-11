@@ -13,6 +13,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/checkout.sql'),'utf8'));
     await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/checkout-offers.sql'),'utf8'));
     await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/checkout-provider.sql'),'utf8'));
+    await db.exec(fs.readFileSync(path.join(__dirname,'../cloud/account-mail.sql'),'utf8'));
     const data=seed(),catalog=Object.fromEntries(['preparations','questions','materials','quizzes'].map(k=>[k,data[k]]));
     await db.query('update simulou_passou_private.catalog set body=$1::jsonb',[JSON.stringify(catalog)]);
     const practice=pqoCatalog({practice:true});
@@ -45,10 +46,17 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
       {id:'pay_synthetic_pix_all',offer:'all',value:49.9,billingType:'PIX'},
     ];
     let checkoutCreates=0, checkoutLookups=0;
+    const recoveryKey='b'.repeat(56);
+    let capturedMail, verifiedLinks=0;
     const fetchImpl=async(url,options)=>{
       const u=new URL(url),b=options.body?JSON.parse(options.body):{},token=options.headers.Authorization?.slice(7);
       const user=role=>({id:role==='admin'?m:a,email:role+'@example.test',user_metadata:{name:role},created_at:'2026-01-01T00:00:00Z'});
       const reply=(data,status=200)=>new Response(JSON.stringify(data),{status});
+      if(u.origin==='https://api.resend.com'){
+        assert.equal(options.headers.Authorization,'Bearer mail-qa-only');
+        capturedMail=b;
+        return reply({id:'synthetic-email'});
+      }
       if(u.origin==='https://api-sandbox.asaas.com'){
         assert.equal(options.headers.access_token,'sandbox-provider-test-only');
         if(u.pathname==='/v3/checkouts'){
@@ -69,13 +77,28 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
       }
       if(u.pathname==='/auth/v1/signup')return reply({user:user('student')});
       if(u.pathname==='/auth/v1/token'){const role=(b.email||b.refresh_token||'').includes('admin')?'admin':'student';return reply({access_token:'token-'+role,refresh_token:'refresh-'+role,user:user(role),expires_in:3600});}
-      if(u.pathname==='/auth/v1/user'&&options.method==='PUT'){assert.equal(b.password,'NewSynthetic123!');return reply(user('student'));}
+      if(u.pathname==='/auth/v1/admin/generate_link'){
+        assert.equal(token,'server-qa-only');
+        assert.deepEqual([b.type,b.email],['recovery','student@example.test']);
+        return reply({hashed_token:recoveryKey});
+      }
+      if(u.pathname==='/auth/v1/verify'){
+        assert.deepEqual(b,{token_hash:recoveryKey,type:'recovery'});
+        if(verifiedLinks++)return reply({code:'otp_expired'},403);
+        return reply({access_token:'verified-reset-token',user:user('student')});
+      }
+      if(u.pathname==='/auth/v1/user'&&options.method==='PUT'){
+        assert.equal(token,'verified-reset-token');
+        if(b.password==='TooWeak123!')return reply({error_code:'weak_password'},422);
+        assert.equal(b.password,'NewSynthetic123!');
+        return reply(user('student'));
+      }
       if(u.pathname==='/auth/v1/user')return token==='token-admin'||token==='token-student'?reply(user(token.slice(6))):reply({},401);
       if(u.pathname==='/auth/v1/logout'||u.pathname==='/auth/v1/recover')return reply({});
-      const name=u.pathname.split('/').at(-1),params={sp_runtime_load:['p_actor'],sp_runtime_commit:['p_actor','p_catalog_revision','p_catalog','p_members'],sp_module_access:['p_actor','p_user','p_active'],sp_checkout_claim_offer:['p_actor','p_prep','p_mode','p_offer'],sp_checkout_attach:['p_order','p_provider','p_url'],sp_checkout_event:['p_provider','p_mode','p_event','p_state','p_amount'],sp_checkout_known:['p_provider','p_mode']}[name];
+      const name=u.pathname.split('/').at(-1),params={sp_runtime_load:['p_actor'],sp_runtime_commit:['p_actor','p_catalog_revision','p_catalog','p_members'],sp_module_access:['p_actor','p_user','p_active'],sp_checkout_claim_offer:['p_actor','p_prep','p_mode','p_offer'],sp_checkout_attach:['p_order','p_provider','p_url'],sp_checkout_event:['p_provider','p_mode','p_event','p_state','p_amount'],sp_checkout_known:['p_provider','p_mode'],sp_mail_reserve:['p_recipient','p_client']}[name];
       if(!params)throw Error('Unknown mock endpoint');
       try{const result=await db.query(`select public.${name}(${params.map((_,i)=>'$'+(i+1)).join(',')}) as result`,params.map(k=>b[k]&&typeof b[k]==='object'?JSON.stringify(b[k]):b[k]));return reply(result.rows[0].result);}
-      catch(e){return reply({code:e.code},e.code==='40001'?409:400);}
+      catch(e){return reply({code:e.code},e.code==='40001'?409:e.code==='PT429'?429:400);}
     };
     const staticApp=createApp({dataFile:null,basePath:'/simulou-passou'});let gateway;
     server=http.createServer(async(req,res)=>{
@@ -87,7 +110,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     });
     await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
     let timeShift=0;
-    gateway=createCloudGateway({supabaseUrl:'https://db.example.test',serviceKey:'server-qa-only',publishableKey:'public-qa',allowedOrigins:[base],fetchImpl,now:()=>Date.now()+timeShift,checkoutConfig:{mode:'sandbox',apiKey:'sandbox-provider-test-only',webhookToken:secret}});
+    gateway=createCloudGateway({supabaseUrl:'https://db.example.test',serviceKey:'server-qa-only',publishableKey:'public-qa',allowedOrigins:[base],fetchImpl,now:()=>Date.now()+timeShift,resendKey:'mail-qa-only',checkoutConfig:{mode:'sandbox',apiKey:'sandbox-provider-test-only',webhookToken:secret}});
     const cloudRequest=(path,body,headers={})=>gateway(new Request(base+'/simulou-passou/api'+path,{method:body?'POST':'GET',headers:{origin:base,cookie:'sp_access=token-student',...headers},body:body?JSON.stringify(body):undefined}));
     assert.equal((await cloudRequest('/orders',{prepId:'pqo',offer:'module'})).status,503);
     await db.exec('update simulou_passou_private.settings set checkout_enabled=true where id;');
@@ -199,14 +222,30 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     await nav('recuperar');await page.getByLabel('E-mail',{exact:true}).fill('student@example.test');
     await page.getByRole('button',{name:'Enviar link de recuperação'}).click();
     await page.getByText(/Confira sua caixa de entrada/).waitFor();
-    await page.goto(base+'/simulou-passou/#access_token=token-student&refresh_token=refresh-student&type=recovery');
+    assert.equal(capturedMail.from,'Simulou Passou <suporte@logosiabrasil.com>');
+    assert.deepEqual(capturedMail.to,['student@example.test']);
+    assert.match(capturedMail.html,/simulou-passou-logo\.png/);
+    const recoveryUrl=capturedMail.text.match(/http[^\s]+/)[0];
+    assert.equal(recoveryUrl,base+'/simulou-passou/#/redefinir?chave='+recoveryKey);
+    assert.equal((await cloudRequest('/auth/recover',{email:'student@example.test'})).status,429);
+    await page.goto(recoveryUrl);
+    await page.getByLabel('Nova senha',{exact:true}).waitFor();
+    assert.equal(verifiedLinks,0);
+    await page.screenshot({path:path.join(__dirname,'../qa/redefinir-senha-mobile.png')});
     await page.getByLabel('Nova senha',{exact:true}).fill('NewSynthetic123!');
     await page.getByLabel('Confirme a nova senha',{exact:true}).fill('WrongSynthetic123!');
     await page.getByRole('button',{name:'Salvar nova senha'}).click();
     await page.getByText('As senhas não coincidem.').waitFor();
+    assert.equal(verifiedLinks,0);
+    await page.getByLabel('Nova senha',{exact:true}).fill('TooWeak123!');
+    await page.getByLabel('Confirme a nova senha',{exact:true}).fill('TooWeak123!');
+    await page.getByRole('button',{name:'Salvar nova senha'}).click();
+    await page.getByText('Escolha uma senha mais forte.').waitFor();
+    await page.getByLabel('Nova senha',{exact:true}).fill('NewSynthetic123!');
     await page.getByLabel('Confirme a nova senha',{exact:true}).fill('NewSynthetic123!');
     await page.getByRole('button',{name:'Salvar nova senha'}).click();
     await page.getByRole('heading',{name:'Entre na sua conta'}).waitFor();
+    assert.equal(verifiedLinks,1);
     await nav('cadastro');await page.getByLabel('Seu nome',{exact:true}).fill('Pessoa de teste');await page.getByLabel('E-mail',{exact:true}).fill('student@example.test');await page.getByLabel('Senha',{exact:true}).fill('Synthetic123!');await page.getByRole('button',{name:'Criar conta',exact:true}).click();await page.getByText('Confira seu e-mail para confirmar o cadastro e depois entre na sua conta.',{exact:true}).waitFor();
     await nav('entrar');await page.getByLabel('E-mail',{exact:true}).fill('student@example.test');await page.getByLabel('Senha',{exact:true}).fill('Synthetic123!');await page.getByRole('button',{name:'Entrar',exact:true}).click();await page.locator('.workspace-overview').waitFor();
     await nav('anotacoes','.notes-layout');await page.getByLabel('Título',{exact:true}).fill('Nota em nuvem');await page.getByLabel('Sua anotação',{exact:true}).fill('Persistência e isolamento verificados.');await page.getByRole('button',{name:'Salvar anotação',exact:false}).click();await page.locator('.note-list-item').waitFor();await page.reload();await page.locator('.note-list-item').waitFor();
