@@ -65,7 +65,7 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
         try{const session=await supa('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:{refresh_token:jar.sp_refresh},key:publishableKey});token=session.access_token;user=session.user;setSession(session);}catch(e){if(e.status>=500)throw e;clear();}
       }
       if(user&&(user.is_anonymous||!user.email)){user=null;clear();}
-      if(path==='/api/health'&&req.method==='GET'){await rpc('sp_runtime_load',{p_actor:null});return finish({ok:true,module:'simulou-passou',build:'cloud-6',payments:checkout.configured?'configured':'disabled',guestCheckout:guestCheckoutEnabled&&checkout.configured,recoveryEmail:accountMail?'branded':'standard'});}
+      if(path==='/api/health'&&req.method==='GET'){await rpc('sp_runtime_load',{p_actor:null});return finish({ok:true,module:'simulou-passou',build:'cloud-7',payments:checkout.configured?'configured':'disabled',guestCheckout:guestCheckoutEnabled&&checkout.configured,recoveryEmail:accountMail?'branded':'standard'});}
       if(path==='/api/auth/demo'||path.includes('/demo-event'))return finish({error:'Operação de demonstração indisponível.'},404);
       if(path==='/api/auth/register'&&req.method==='POST'){
         const name=String(body.name||'').trim().slice(0,100),email=String(body.email||'').trim().toLowerCase(),password=String(body.password||'');

@@ -23,13 +23,23 @@ export function createCheckout({config,fetchImpl,origin,basePath,rpc,fault}){
       signal:AbortSignal.timeout(12000),
     });
     if(!response.ok){
+      let errors=[];
       if(path==='/checkouts'&&body?.customerData&&[400,422].includes(response.status)){
         const error=await response.json().catch(()=>null);
-        const fields=(Array.isArray(error?.errors)?error.errors:[]).map(item=>item?.code+' '+item?.description).join(' ');
-        if(/customer|pagador|cpf|cnpj|endere[cç]o|postal|cidade|bairro|telefone|phone|e.?mail/i.test(fields)){
+        errors=Array.isArray(error?.errors)?error.errors:[];
+        const fields=errors.map(item=>item?.code+' '+item?.description).join(' ');
+        if(/customer|pagador|cpf|cnpj|endere[cç]o|postal|cidade|bairro|telefone|phone|e.?mail|parse_error/i.test(fields)){
           const {customerData,...checkout}=body;
           return provider(path,checkout);
         }
+      }
+      if(path==='/checkouts'){
+        if(!body?.customerData){
+          const error=await response.json().catch(()=>null);
+          errors=Array.isArray(error?.errors)?error.errors:[];
+        }
+        const codes=errors.map(item=>item?.code).filter(code=>typeof code==='string'&&/^[a-z0-9_]{1,64}$/i.test(code));
+        console.warn('Simulou Passou: Asaas recusou o checkout',response.status,codes.join(','));
       }
       throw fault(503,'O provedor de pagamentos está indisponível. Tente novamente em instantes.');
     }
@@ -38,6 +48,7 @@ export function createCheckout({config,fetchImpl,origin,basePath,rpc,fault}){
 
   async function create(user,prep,offer,guest,details){
     if(!configured)throw fault(503,'As vendas ainda não estão habilitadas.');
+    if(!config.itemImage)throw fault(503,'A imagem do produto está indisponível.');
     if(typeof prep!=='string'||!/^[a-z0-9-]{1,80}$/.test(prep))throw fault(400,'Escolha uma trilha válida.');
     if(!['module','all'].includes(offer))throw fault(400,'Escolha uma opção de acesso.');
     const offerArgs={p_prep:prep,p_mode:mode,p_offer:offer};
@@ -59,6 +70,8 @@ export function createCheckout({config,fetchImpl,origin,basePath,rpc,fault}){
     if(order.state==='different_order')throw fault(409,'Conclua ou cancele o pedido anterior antes de escolher outra opção.');
     if(order.state!=='create')throw fault(409,'Já existe um pedido em processamento. Aguarde e tente novamente.');
     const returnUrl=origin+basePath+'/?'+new URLSearchParams({prep,offer})+'&pagamento=';
+    const itemName=offer==='all'?'Simulou Passou - Pacote':order.name;
+    const itemDescription=offer==='all'?'Acesso a todos os módulos':'Acesso ao módulo '+order.name;
     const checkout=await provider('/checkouts',{
       billingTypes:details?[details.method]:['PIX','CREDIT_CARD'],
       ...(details?{customerData:{name:details.name,phone:details.phone,email:user?.email??guest?.email}}:{}),
@@ -66,7 +79,12 @@ export function createCheckout({config,fetchImpl,origin,basePath,rpc,fault}){
       minutesToExpire:30,
       externalReference:order.id,
       callback:{successUrl:returnUrl+'retorno',cancelUrl:returnUrl+'cancelado',expiredUrl:returnUrl+'cancelado'},
-      items:[{name:offer==='all'?'Simulou Passou · Todos os módulos':'Simulou Passou · '+order.name,description:offer==='all'?'Acesso a todos os módulos':'Acesso ao módulo '+order.name,quantity:1,value:order.amount/100}],
+      items:[{
+        name:Array.from(itemName).slice(0,30).join(''),
+        description:Array.from(itemDescription).slice(0,150).join(''),
+        imageBase64:config.itemImage,
+        quantity:1,value:order.amount/100,
+      }],
     });
     if(!checkoutId(checkout.id))throw fault(503,'O provedor não retornou um link de pagamento válido.');
     const url=pay+'/checkoutSession/show?id='+encodeURIComponent(checkout.id);

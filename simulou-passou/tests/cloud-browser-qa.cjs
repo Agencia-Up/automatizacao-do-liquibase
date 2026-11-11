@@ -49,6 +49,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
       {id:'pay_guest_module',offer:'module',value:29.9,billingType:'PIX',prepId:recertId},
       {id:'pay_guest_all',offer:'all',value:49.9,billingType:'CREDIT_CARD'},
     ];
+    const itemImage=fs.readFileSync(path.join(__dirname,'../public/simulou-passou-logo.png')).toString('base64');
     let checkoutCreates=0, checkoutLookups=0, prefillRejected=0;
     const recoveryKey='b'.repeat(56);
     let capturedMail, verifiedLinks=0;
@@ -65,19 +66,22 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
         assert.equal(options.headers.access_token,'sandbox-provider-test-only');
         if(u.pathname==='/v3/checkouts'){
           const {id,offer,value,billingType,prepId}=checkoutCases[checkoutCreates];
+          assert.equal(b.items[0].imageBase64,itemImage);
+          assert.ok(Array.from(b.items[0].name).length<=30);
+          assert.ok(Array.from(b.items[0].description).length<=150);
           const isGuest=id.startsWith('pay_guest_');
           assert.deepEqual(b.billingTypes,isGuest?[billingType]:['PIX','CREDIT_CARD']);
           if(isGuest&&b.customerData){
             assert.deepEqual(b.customerData,{name:'Cliente Sintético',email:'buyer@example.test',phone:'11987654321'});
             if(billingType==='CREDIT_CARD'){
               prefillRejected++;
-              return reply({errors:[{code:'invalid_object',description:'CPF do pagador é obrigatório'}]},400);
+              return reply({errors:[{code:'parse_error',description:'Dados incompletos'}]},400);
             }
           }else if(isGuest)assert.equal(billingType,'CREDIT_CARD');
           checkoutCreates++;
           const checkoutId='sandbox-checkout-'+checkoutCreates;
           assert.equal(b.items[0].value,value);
-          assert.match(b.items[0].name,offer==='all'?/Todos os módulos/:prepId===recertId?/Recertificação - PQO Operações/:/Operações/);
+          assert.match(b.items[0].name,offer==='all'?/Simulou Passou - Pacote/:prepId===recertId?/Recertificação - PQO Operações/:/Operações/);
           payments.set(id,{checkoutSession:checkoutId,status:'PENDING',value,billingType});
           return reply({id:checkoutId});
         }
@@ -125,7 +129,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
     });
     await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
     let timeShift=0;
-    gateway=createCloudGateway({supabaseUrl:'https://db.example.test',serviceKey:'server-qa-only',publishableKey:'public-qa',allowedOrigins:[base],fetchImpl,now:()=>Date.now()+timeShift,resendKey:'mail-qa-only',guestCheckoutEnabled:true,checkoutConfig:{mode:'sandbox',apiKey:'sandbox-provider-test-only',webhookToken:secret}});
+    gateway=createCloudGateway({supabaseUrl:'https://db.example.test',serviceKey:'server-qa-only',publishableKey:'public-qa',allowedOrigins:[base],fetchImpl,now:()=>Date.now()+timeShift,resendKey:'mail-qa-only',guestCheckoutEnabled:true,checkoutConfig:{mode:'sandbox',apiKey:'sandbox-provider-test-only',webhookToken:secret,itemImage}});
     const cloudRequest=(path,body,headers={})=>gateway(new Request(base+'/simulou-passou/api'+path,{method:body?'POST':'GET',headers:{origin:base,cookie:'sp_access=token-student',...headers},body:body?JSON.stringify(body):undefined}));
     assert.equal((await cloudRequest('/orders',{prepId:'pqo',offer:'module'})).status,503);
     await db.exec('update simulou_passou_private.settings set checkout_enabled=true where id;');
