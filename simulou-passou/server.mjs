@@ -107,6 +107,16 @@ export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.
         const item=db.recoveries.find(x=>x.token===b.token&&x.expires>now());if(!item)fail(400,'Link expirado ou inválido. Solicite outro.');const p=String(b.password||'');if(p.length<8||p.length>128)fail(400,'Use uma senha com 8 a 128 caracteres.');db.users.find(u=>u.id===item.userId).password=hash(p);db.recoveries=db.recoveries.filter(x=>x.userId!==item.userId);db.sessions=db.sessions.filter(x=>x.userId!==item.userId);persist();result={ok:true};
       } else if(path==='/api/me'&&method==='PATCH'){
         const u=needUser(req);u.name=requireText(b.name,'seu nome',100);persist();result=safeUser(u);
+      } else if(path==='/api/feedback'&&method==='POST'){
+        const user=needUser(req);
+        const message=typeof b.message==='string'?b.message.trim():'';
+        if(message.length<5||message.length>2000)fail(400,'Escreva uma opinião de 5 a 2.000 caracteres.');
+        db.feedback??=[];
+        if(db.feedback.filter(item=>item.userId===user.id&&now()-Date.parse(item.createdAt)<3600000).length>=5)fail(429,'Você já enviou várias opiniões. Tente mais tarde.');
+        db.feedback.push({userId:user.id,message,createdAt:stamp()});
+        persist();result={ok:true};
+      } else if(path==='/api/feedback'&&method==='GET'){
+        needMaster(req);result=(db.feedback||[]).slice(-100).reverse().map(({message,createdAt})=>({message,createdAt}));
       } else if(path==='/api/orders'&&method==='GET'){
         const u=needUser(req);result=db.orders.filter(o=>o.userId===u.id);
       } else if(path==='/api/orders'&&method==='POST'){

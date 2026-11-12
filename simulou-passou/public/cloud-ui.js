@@ -1,3 +1,5 @@
+export const isMarketPrep=id=>!['pqo-risco','pqo-liquidacao','pqo-custodia'].includes(id);
+
 export function cloudAuthPage(kind,{bar,brand,field,icon,hasSession,hasRecoveryKey}){
   const register=kind==='cadastro',recover=kind==='recuperar',reset=kind==='redefinir';
   const recovering=recover||reset;
@@ -104,9 +106,9 @@ export function planComparison({data,tracks,selected,prices,actions,money,icon,E
 }
 
 export function cloudCheckout(data,{bar,brand,link,notice,E,select,money,icon},query){
-  const choices=data.preparations.filter(p=>p.track==='pqo'&&p.status==='published');
+  const choices=data.preparations.filter(p=>p.track==='pqo'&&p.status==='published'&&isMarketPrep(p.id));
   const prep=query.get('prep');
-  const selected=choices.find(p=>p.id===prep)||(!prep?choices[0]:null);
+  const selected=(query.has('pagamento')?data.preparations:choices).find(p=>p.id===prep)||(!prep?choices[0]:null);
   const offer=query.get('offer')==='all'?'all':'module';
   const all=offer==='all';
   const prices=data.offers||{module:2990,all:4990};

@@ -7,28 +7,53 @@ const fields = [
 ];
 
 export function calculatorMarkup() {
-  const keys = ['7','8','9','÷','4','5','6','×','1','2','3','−','0',',','±','+','ENTER','x↔y','CLX','CLST'];
-  return `<details class="rpn"><summary>Teclado RPN</summary>
-    <p>Digite o primeiro número, toque em ENTER, digite o segundo e escolha a operação.</p>
-    <output data-rpn-output aria-label="Resultado RPN" aria-live="polite">0</output>
-    <div>${keys.map(key => `<button type="button" data-action="exam-rpn" data-key="${key}">${key}</button>`).join('')}</div>
-  </details><form data-form="exam-finance" class="exam-finance">
+  const keys = [
+    'n','i','PV','PMT','FV','CHS','7','8','9','÷',
+    'yˣ','1/x','%T','Δ%','%','EEX','4','5','6','×',
+    'R/S','SST','R↓','x↔y','CLx','ENTER','1','2','3','−',
+    'ON','f','g','STO','RCL','0','.', 'Σ+','+',
+  ];
+  const unavailable=['R/S','SST','EEX','Σ+'];
+  return `<section class="hp12c" aria-label="Calculadora HP 12C em notação RPN">
+    <div class="hp12c-display"><strong>12C</strong><output data-rpn-output aria-label="Resultado RPN" aria-live="polite">0,00</output></div>
+    <div class="hp12c-keys">${keys.map(key => `<button type="button" class="${key==='ENTER'?'hp-enter':key==='f'?'hp-gold':key==='g'?'hp-blue':''}" data-action="exam-rpn" data-key="${key}" ${unavailable.includes(key)?'disabled title="Função indisponível nesta calculadora"':''}>${key}</button>`).join('')}</div>
+  </section>
+  <p class="hp12c-help">Use ENTER para separar valores. Digite um valor antes de n, i, PV, PMT ou FV para gravá-lo. Pressione a tecla do valor desconhecido para calculá-lo.</p>
+  <details class="exam-finance-guide"><summary>Cálculo orientado</summary><form data-form="exam-finance" class="exam-finance">
     <p>Preencha os valores conhecidos e escolha o que calcular. Use sinal negativo para saídas e positivo para entradas.</p>
     <div class="exam-finance-fields">${fields.map(([name, label, example]) => `<label>${label}<input name="${name}" inputmode="decimal" placeholder="${example}" maxlength="20"></label>`).join('')}</div>
     <label>Calcular<select name="target">${fields.map(([name, label]) => `<option value="${name}" ${name === 'fv' ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
     <label class="exam-finance-mode"><input type="checkbox" name="begin"> Pagamentos no início do período</label>
     <output role="status" aria-live="polite"></output>
     <div class="form-error" role="alert"></div><button class="btn" type="submit">Calcular</button>
-  </form>`;
+  </form></details>`;
 }
 
 export function createRpn() {
   let stack = [0, 0, 0, 0];
   let entry = '';
   let lift = false;
+  let shift = '', begin = false, decimals = 2;
+  let financial={n:0,i:0,pv:0,pmt:0,fv:0};
+  const memory=Array(10).fill(0);
+  const display = () => new Intl.NumberFormat('pt-BR', {
+    useGrouping:false,minimumFractionDigits:decimals,maximumFractionDigits:decimals,
+  }).format(stack[0]);
   const push = value => { stack = [value, ...stack.slice(0, 3)]; };
   return key => {
-    if (/^[0-9,]$/.test(key)) {
+    if(['f','g','STO','RCL'].includes(key)){shift=key;return display();}
+    if(shift){
+      const mode=shift;shift='';
+      if(mode==='f'&&/^\d$/.test(key))decimals=Number(key);
+      if(mode==='f'&&key==='x↔y')financial={n:0,i:0,pv:0,pmt:0,fv:0};
+      if(mode==='g'&&key==='7')begin=true;
+      if(mode==='g'&&key==='8')begin=false;
+      if(/^\d$/.test(key)&&mode==='STO')memory[Number(key)]=stack[0];
+      if(/^\d$/.test(key)&&mode==='RCL'){push(memory[Number(key)]);lift=true;}
+      if(mode==='RCL'&&Object.hasOwn(financial,key.toLowerCase())){push(financial[key.toLowerCase()]);lift=true;}
+      entry='';return display();
+    }
+    if (/^[0-9.,]$/.test(key)) {
       if (!entry && lift) push(0);
       const digit = key === ',' ? '.' : key;
       if (!(digit === '.' && entry.includes('.')) && entry.length < 15) entry += digit;
@@ -37,21 +62,36 @@ export function createRpn() {
       lift = false;
       return entry.replace('.', ',');
     }
+    if(key==='CHS'||key==='±'){
+      stack[0]=-stack[0];
+      if(entry)entry=entry.startsWith('-')?entry.slice(1):'-'+entry;
+      return entry?entry.replace('.',','):display();
+    }
+    const register=key.toLowerCase();
+    if(Object.hasOwn(financial,register)){
+      if(entry){financial[register]=stack[0];entry='';lift=true;return display();}
+      try {
+        const result=financeValue({...financial,target:register,begin});
+        financial[register]=result;stack[0]=result;lift=true;return display();
+      } catch { return 'Erro'; }
+    }
     entry = '';
     if (key === 'ENTER') { push(stack[0]); lift = false; }
     if (key === 'x↔y') { [stack[0], stack[1]] = [stack[1], stack[0]]; lift = true; }
-    if (key === '±') stack[0] = -stack[0];
-    if (key === 'CLX') { stack[0] = 0; lift = false; }
-    if (key === 'CLST') { stack = [0, 0, 0, 0]; lift = false; }
+    if (key === 'CLx'||key==='CLX') { stack[0] = 0; lift = false; }
+    if (key === 'R↓') {stack=[...stack.slice(1),stack[0]];lift=true;}
+    if (key === 'ON'||key==='CLST') { stack = [0, 0, 0, 0]; lift = false; }
+    if (key==='1/x') {if(!stack[0])return 'Erro';stack[0]=1/stack[0];lift=true;return display();}
     const [x, y, z, t] = stack;
-    const operations = { '+': () => y + x, '−': () => y - x, '×': () => y * x, '÷': () => y / x };
+    const operations = { '+': () => y + x, '−': () => y - x, '×': () => y * x, '÷': () => y / x,
+      'yˣ':()=>y**x,'%':()=>y*x/100,'%T':()=>x/y*100,'Δ%':()=>(x-y)/y*100 };
     if (Object.hasOwn(operations, key)) {
       const result = operations[key]();
       if (!Number.isFinite(result)) return 'Erro';
-      stack = [result, z, t, t];
+      stack = ['%','%T','Δ%'].includes(key)?[result,y,z,t]:[result,z,t,t];
       lift = true;
     }
-    return new Intl.NumberFormat('pt-BR', { maximumSignificantDigits: 12 }).format(stack[0]);
+    return display();
   };
 }
 
@@ -63,7 +103,11 @@ export function calculateFinance(values) {
     if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(value)) throw new Error('Preencha os quatro valores conhecidos. Informe zero para um pagamento periódico inexistente.');
     return [key, Number(value)];
   }));
-  const { n, i, pv, pmt, fv } = numbers;
+  const result=financeValue({...numbers,target,begin});
+  return new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 6 }).format(result) + (target === 'i' ? '%' : '');
+}
+
+function financeValue({target,begin,n,i,pv,pmt,fv}) {
   if (n !== undefined && (n <= 0 || n > 10000)) throw new Error('Informe de 1 a 10.000 períodos, ou uma fração positiva.');
   if (i !== undefined && i <= -100) throw new Error('A taxa deve ser maior que −100%.');
   const rate = i / 100;
@@ -106,5 +150,5 @@ export function calculateFinance(values) {
     if (target === 'fv') result = -(pv * growth + pmt * annuity);
   }
   if (!Number.isFinite(result)) throw new Error('Não foi possível calcular com esses valores.');
-  return new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 6 }).format(result) + (target === 'i' ? '%' : '');
+  return result;
 }

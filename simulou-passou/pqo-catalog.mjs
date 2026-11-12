@@ -125,6 +125,10 @@ function chooseExam(id){
   const specialist=[...Object.values(focused).flat(),...appliedSpecialty].filter(([subject])=>specialistChapters[subject]?.includes(id));
   const coreByTopic=new Map(commonTopics.map(subject=>[subject,[...common,...appliedCore].filter(row=>row[0]===subject)]));
   const selected=[...specialist];
+  const cadastroLimit=id==='back-office'?4:1;
+  for(const [subject,pool] of coreByTopic){
+    if(subject.startsWith('Cadastro de '))coreByTopic.set(subject,pool.slice(0,cadastroLimit));
+  }
   // Interleave the common chapters to retain coverage even for the tracks
   // with more specialist material. This is our distribution, not official weights.
   while(selected.length<60){

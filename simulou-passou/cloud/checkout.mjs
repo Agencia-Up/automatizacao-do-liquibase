@@ -46,6 +46,7 @@ export function createCheckout({config,fetchImpl,origin,basePath,rpc,fault}){
     if(!config.itemImage)throw fault(503,'A imagem do produto está indisponível.');
     if(typeof prep!=='string'||!/^[a-z0-9-]{1,80}$/.test(prep))throw fault(400,'Escolha uma trilha válida.');
     if(!['module','all'].includes(offer))throw fault(400,'Escolha uma opção de acesso.');
+    if(offer==='module'&&['pqo-risco','pqo-liquidacao','pqo-custodia'].includes(prep))throw fault(404,'Este módulo não está disponível para compra individual.');
     const product=await rpc('sp_checkout_asaas_offer',{p_mode:mode,p_offer:offer});
     if(!product&&!sandbox)throw fault(503,'Esta oferta ainda não está disponível para pagamento.');
     const offerArgs={p_prep:prep,p_mode:mode,p_offer:offer};

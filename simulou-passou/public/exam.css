@@ -83,3 +83,18 @@
   .syllabus ul{columns:1}
   .exam-map-jump{display:inline-flex;align-items:center;min-height:44px;border:0;border-radius:8px;background:#e9f0e9;color:#0d6661;font:700 .75rem system-ui;padding:0 10px;cursor:pointer}
 }
+
+.hp12c{padding:clamp(7px,2vw,16px);border-radius:10px;background:#262927;border:2px solid #b99a5b}
+.hp12c-display{display:flex;align-items:center;gap:12px;background:#c6ad71;border-radius:6px;padding:8px;margin-bottom:12px;color:#27271e}
+.hp12c-display output{flex:1;min-width:0;background:#c3ccb2;color:#18201c;text-align:right;padding:5px 9px;border-radius:3px;font:600 clamp(19px,4vw,30px)/1.2 ui-monospace,monospace;overflow-wrap:anywhere}
+.hp12c-keys{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));grid-template-rows:repeat(4,minmax(32px,1fr));gap:clamp(2px,1vw,6px)}
+.hp12c-keys button{padding:0 1px;border:1px solid #646966;border-radius:4px;background:#141918;color:#fff;font:700 clamp(8px,2vw,13px)/1 Arial,sans-serif;min-width:0}
+.hp12c-keys button:hover:not(:disabled){background:#3d4642}
+.hp12c-keys button:disabled{opacity:.42;cursor:default}
+.hp12c-keys .hp-enter{grid-column:6;grid-row:3 / span 2;writing-mode:vertical-rl}
+.hp12c-keys .hp-gold{background:#e1ad58;color:#141918}
+.hp12c-keys .hp-blue{background:#6dc0dc;color:#141918}
+.hp12c-help{margin:12px 0;color:var(--muted);font-size:13px}
+.exam-finance-guide summary{cursor:pointer;font-weight:600}
+.exam-strike span{font:700 23px/1 Arial,sans-serif}
+.exam-option.is-crossed .exam-strike{background:#f7dfd9;color:#8b2525;border-color:#c98579}
