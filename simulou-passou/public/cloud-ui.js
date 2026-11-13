@@ -84,7 +84,7 @@ function planContents(data,tracks,selected,backToPackage,{E,icon}){
 export function planComparison({data,tracks,selected,prices,actions,money,icon,E,selectedOffer,backToPackage}){
   const plans=[
     {id:'module',label:'Individual',title:'Um módulo',scope:'Simulados e materiais da trilha escolhida.'},
-    {id:'all',label:'Pacote completo',title:'Todos os módulos',scope:tracks.length>1?'Simulados e materiais das '+tracks.length+' trilhas.':'Simulados e materiais de todo o catálogo.'},
+    {id:'all',label:'Pacote completo',title:'Todos os módulos',scope:'Um ano de acesso aos simulados e materiais de todo o catálogo.'},
   ];
   return `<div class="pricing-comparison">
     <div class="pricing-grid">${plans.map(plan=>`
@@ -96,7 +96,7 @@ export function planComparison({data,tracks,selected,prices,actions,money,icon,E
         ${selected?`<a class="pricing-details-link" href="#${plan.id==='all'?'conteudo-pacote':'conteudo-individual'}" data-scroll="${plan.id==='all'?'conteudo-pacote':'conteudo-individual'}">${plan.id==='all'?'Ver todas as trilhas':'Ver conteúdo do módulo'} ${icon('right',12)}</a>`:''}
         ${actions[plan.id]}
       </article>`).join('')}</div>
-    <p class="pricing-payment">Pagamento único · Acesso vitalício · Pix ou cartão</p>
+    <p class="pricing-payment">Pagamento único · Pix ou cartão</p>
     <div class="pricing-benefits">
       <h3>Incluído nos dois planos</h3>
       <ul>${['Gabarito comentado','Caderno de erros','Histórico e anotações'].map(text=>`<li>${icon('check',15)} ${text}</li>`).join('')}</ul>
@@ -184,7 +184,7 @@ export function cloudCheckout(data,{bar,brand,link,notice,E,select,money,icon},q
         <h2 id="purchase-summary-title">Resumo do pedido</h2>
         <div class="purchase-product"><span class="purchase-product-icon">${icon('book',23)}</span><div><span>Simulou Passou</span><h3>${E(title)}</h3></div></div>
         <p>${all?`Todos os módulos · ${quizCount} simulados`:'Acesso ao módulo selecionado'}</p>
-        <ul><li>${icon('check',15)} Acesso vitalício</li><li>${icon('check',15)} Gabarito comentado e materiais do plano</li></ul>
+        <ul><li>${icon('check',15)} ${all?'Um ano de acesso':'Acesso ao módulo selecionado'}</li><li>${icon('check',15)} Gabarito comentado e materiais do plano</li></ul>
         <div class="purchase-total"><div><strong>Total</strong><small>Pagamento único</small></div><strong>${money(prices[offer])}</strong></div>
       </aside>
       <section class="purchase-panel" aria-label="Pagamento">${payment}</section>

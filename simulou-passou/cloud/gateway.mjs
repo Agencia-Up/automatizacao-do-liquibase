@@ -4,6 +4,7 @@ import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {Readable} from 'node:stream';
 import {createApp} from '../server.mjs';
 import {seed} from '../seed.mjs';
+import {publicDemo} from '../sample-quiz.mjs';
 
 const personal=['attempts','completed','notes','studyTasks','studyPreferences','reviewMarks','focusSessions'];
 const catalogKeys=['preparations','materials','questions','quizzes'];
@@ -75,6 +76,9 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
       }
       if(webhook)return finish(await checkout.handleWebhook(req,body));
       const jar=cookies(req.headers.get('cookie'));let token=jar.sp_access;
+      const sample=publicDemo({path,method:req.method,body,cookie:jar.sp_sample,secret:serviceKey,now:now(),
+        issueCookie:(value,age)=>headers.append('Set-Cookie',`sp_sample=${value}; Path=${cookiePath}/sample; HttpOnly; Secure; SameSite=Strict; Max-Age=${age}`)});
+      if(sample)return finish(sample.data,sample.status);
       if(token){try{user=await supa('/auth/v1/user',{token,key:publishableKey});}catch(e){if(e.status!==401&&e.status!==403)throw e;}}
       if(!user&&jar.sp_refresh){
         try{const session=await supa('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:{refresh_token:jar.sp_refresh},key:publishableKey});token=session.access_token;user=session.user;setSession(session);}catch(e){if(e.status>=500)throw e;clear();}
@@ -210,6 +214,7 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
         const paidModules=new Map();
         for(const order of context.orders||[]){
           if(order.status!=='paid'||!order.prepId||order.providerMode!==checkout.mode)continue;
+          if(order.accessExpiresAt&&Date.parse(order.accessExpiresAt)<=now())continue;
           if(order.offer==='all'||order.offer==='legacy'||order.offer===undefined){allUsers.add(order.userId);continue;}
           if(order.offer!=='module')continue;
           if(!paidModules.has(order.userId))paidModules.set(order.userId,new Set());

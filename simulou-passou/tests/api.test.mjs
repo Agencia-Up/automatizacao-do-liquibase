@@ -1,15 +1,85 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createApp} from '../server.mjs';
+import {seed} from '../seed.mjs';
+import {pqoCatalog} from '../pqo-catalog.mjs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {unlinkSync,existsSync} from 'node:fs';
 
-async function fixture(t){let time=Date.now();const app=createApp({dataFile:null,now:()=>time});await new Promise(r=>app.server.listen(0,'127.0.0.1',r));const origin='http://127.0.0.1:'+app.server.address().port;t.after(()=>new Promise(r=>app.server.close(r)));function client(){let cookie='';return async(path,method='GET',body,headers={})=>{const res=await fetch(origin+'/api'+path,{method,headers:{...(cookie?{cookie}:{}),...(body?{'Content-Type':'application/json'}:{}),...headers},body:body?JSON.stringify(body):undefined});const c=res.headers.get('set-cookie');if(c)cookie=c.split(';')[0];return {status:res.status,data:await res.json()};};}return {...app,client,origin,advance:ms=>time+=ms};}
+async function fixture(t,initialDb){let time=Date.now();const app=createApp({dataFile:null,now:()=>time,initialDb});await new Promise(r=>app.server.listen(0,'127.0.0.1',r));const origin='http://127.0.0.1:'+app.server.address().port;t.after(()=>new Promise(r=>app.server.close(r)));function client(){let cookie='';return async(path,method='GET',body,headers={})=>{const res=await fetch(origin+'/api'+path,{method,headers:{...(cookie?{cookie}:{}),...(body?{'Content-Type':'application/json'}:{}),...headers},body:body?JSON.stringify(body):undefined});const c=res.headers.get('set-cookie');if(c)cookie=c.split(';')[0];return {status:res.status,data:await res.json()};};}return {...app,client,origin,advance:ms=>time+=ms};}
 async function register(c,email='aluno@example.test'){return c('/auth/register','POST',{name:'Aluno de teste',email,password:'TesteLocal123!'});}
 async function master(c){return c('/auth/demo','POST',{role:'master'});}
 async function student(c){return c('/auth/demo','POST',{role:'student'});}
 async function paid(c){const order=(await c('/orders','POST',{})).data;await c('/orders/'+order.id+'/demo-event','POST',{status:'paid',eventId:'payment-'+order.id});return order;}
+
+test('Recertificação PQO Operações aplica 30 questões e revela o gabarito comentado ao encerrar em 3h',async t=>{
+  const quizId='pqo-recertificacao-operacoes';
+  const catalog=pqoCatalog();
+  const db={...seed(),...catalog};
+  const quiz=catalog.quizzes.find(q=>q.id===quizId);
+  const questions=quiz.questionIds.map(id=>catalog.questions.find(q=>q.id===id));
+  assert.equal(new Set(quiz.questionIds).size,60);
+  assert.equal(quiz.questionsPerAttempt,30);
+  assert.deepEqual(questions.filter(q=>q.subject.startsWith('Cadastro de ')).map(q=>q.subject).sort(),
+    ['Cadastro de não residentes','Cadastro de residentes']);
+  assert.ok(questions.filter(q=>q.subject==='Ambiente de negociação').length>7);
+  assert.ok(questions.every(q=>q.type==='objective'&&new Set(q.options).size===4&&q.points===1));
+  const f=await fixture(t,db),c=f.client();
+  await master(c);
+  const {data:attempt}=await c('/attempts','POST',{quizId});
+  assert.equal(attempt.questions.length,30);
+  assert.equal(Date.parse(attempt.deadline)-Date.parse(attempt.startedAt),180*60_000);
+  assert.equal(attempt.rules.passPercent,60);
+  assert.ok(attempt.questions.every(q=>!('correct' in q)&&!('explanation' in q)));
+  const drawn=attempt.questions.map(q=>questions.find(x=>x.id===q.id));
+  const answers=Object.fromEntries(drawn.slice(0,18).map(q=>[q.id,q.correct]));
+  answers[drawn[18].id]=String((Number(drawn[18].correct)+1)%4);
+  assert.equal((await c('/attempts/'+attempt.id+'/save','POST',{answers})).status,200);
+  f.advance(180*60_000);
+  const {data:result}=await c('/attempts/'+attempt.id);
+  assert.equal(result.finishReason,'timeout');
+  assert.equal(result.status,'completed');
+  assert.equal(result.result.approved,true);
+  assert.deepEqual([result.result.correct,result.result.wrong,result.result.blank],[18,1,11]);
+  for(const q of result.questions){
+    const letters=[...q.explanation.matchAll(/ ([A-D]) — /g)].map(match=>match[1]);
+    if(!q.id.includes('-rotation-'))assert.deepEqual(letters,[...'ABCD'].filter((_,i)=>String(i)!==q.correct));
+    assert.match(q.explanation,/Referência · Guia Por Dentro da B3, p\. 11, título/);
+  }
+  const {data:next}=await c('/attempts','POST',{quizId});
+  assert.equal(new Set([...attempt.questions,...next.questions].map(q=>q.id)).size,60);
+  assert.equal((await c('/attempts','POST',{quizId})).data.id,next.id);
+  await c('/attempts/'+next.id+'/finish','POST',{});
+  const {data:third}=await c('/attempts','POST',{quizId});
+  assert.equal(new Set([...next.questions,...third.questions].map(q=>q.id)).size,60);
+});
+
+test('rotação usa o histórico legado, deduplica enunciados e esgota o banco antes de repetir',async t=>{
+  const db=seed(),quiz=db.quizzes.find(q=>q.id==='s1');
+  const duplicate={...db.questions[0],id:'alternate-id',prompt:db.questions[0].prompt.toUpperCase()};
+  const draft={...db.questions[0],id:'draft',prompt:'Pergunta em rascunho',status:'draft'};
+  db.questions.push(duplicate,draft);
+  quiz.questionIds=['q1','q2'];
+  const f=await fixture(t,db),c=f.client(),secondUser=f.client();
+  await student(c);
+  const {data:old}=await c('/attempts','POST',{quizId:quiz.id});
+  await c('/attempts/'+old.id+'/finish','POST',{});
+  quiz.questionIds=['q1','q2','q3','q4','alternate-id','draft'];
+  quiz.questionsPerAttempt=3;
+  const {data:next}=await c('/attempts','POST',{quizId:quiz.id});
+  const ids=next.questions.map(q=>q.id);
+  assert.equal(ids.length,3);
+  assert.deepEqual(ids.slice(0,2).sort(),['q3','q4']);
+  assert.ok(['q1','q2'].includes(ids[2]));
+  await c('/attempts/'+next.id+'/finish','POST',{});
+  await register(secondUser,'rotation@example.test');
+  await paid(secondUser);
+  const {data:bootstrap}=await secondUser('/bootstrap');
+  const visible=bootstrap.quizzes.find(q=>q.id===quiz.id);
+  assert.equal(visible.bankCount,4);
+  assert.equal(visible.count,3);
+});
 
 test('cadastro, unicidade do e-mail, login, logout e senha derivada',async t=>{const f=await fixture(t),c=f.client();assert.equal((await register(c)).status,200);assert.equal(f.db.users[0].password.includes('TesteLocal123!'),false);assert.equal((await register(c)).status,409);await c('/auth/logout','POST',{});assert.equal((await c('/bootstrap')).data.user,null);assert.equal((await c('/auth/login','POST',{email:'aluno@example.test',password:'errada'})).status,401);assert.equal((await c('/auth/login','POST',{email:'aluno@example.test',password:'TesteLocal123!'})).status,200);});
 test('conteúdo protegido e compra com valor validado no servidor',async t=>{const f=await fixture(t),c=f.client();assert.equal((await c('/materials/m1')).status,401);await register(c);assert.equal((await c('/materials/m1')).status,403);const o=(await c('/orders','POST',{amount:1})).data;assert.equal(o.amount,2990);assert.equal((await c('/bootstrap')).data.user.hasAccess,false);assert.equal((await c('/materials/m1')).status,403);await c('/orders/'+o.id+'/demo-event','POST',{eventId:'declined',status:'declined'});assert.equal((await c('/bootstrap')).data.user.hasAccess,false);const order=await paid(c);assert.equal((await c('/materials/m1')).status,200);assert.equal((await c('/materials/m3')).status,200);assert.equal((await c('/orders','POST',{})).data.alreadyActive,true);assert.equal(f.db.orders.filter(x=>x.status==='paid').length,1);});
