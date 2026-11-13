@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {createApp} from '../server.mjs';
 import {seed} from '../seed.mjs';
 import {pqoCatalog} from '../pqo-catalog.mjs';
+import {certificationPilot,certificationSpecs} from '../certification-specs.mjs';
+import {independentCertifications} from '../cloud/independent-certifications.mjs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {unlinkSync,existsSync} from 'node:fs';
@@ -12,6 +14,75 @@ async function register(c,email='aluno@example.test'){return c('/auth/register',
 async function master(c){return c('/auth/demo','POST',{role:'master'});}
 async function student(c){return c('/auth/demo','POST',{role:'student'});}
 async function paid(c){const order=(await c('/orders','POST',{})).data;await c('/orders/'+order.id+'/demo-event','POST',{status:'paid',eventId:'payment-'+order.id});return order;}
+
+test('ANCORD respeita as cotas do edital e os mínimos por eixo além dos 56 acertos',async t=>{
+  const spec=certificationSpecs.ancord,db=seed(),quiz=db.quizzes.find(q=>q.id==='s1');
+  const bank=Object.entries(spec.subjectCounts).flatMap(([subject,count])=>Array.from({length:count+1},(_,i)=>({
+    id:subject+'-'+i,prepId:quiz.prepId,subject,prompt:'Fixture '+subject+' '+i,type:'objective',
+    options:['A','B','C','D'],correct:'0',explanation:'Exemplo de teste',points:1,status:'published',
+  })));
+  db.questions.push(...bank);
+  Object.assign(quiz,{questionIds:bank.map(q=>q.id),durationMinutes:spec.durationMinutes,questionsPerAttempt:spec.questionsPerAttempt,
+    minimumCorrect:spec.minimumCorrect,subjectCounts:spec.subjectCounts,subjectMinimums:spec.subjectMinimums});
+  const f=await fixture(t,db),c=f.client();
+  await student(c);
+  const {data:attempt}=await c('/attempts','POST',{quizId:quiz.id});
+  assert.equal(attempt.questions.length,80);
+  assert.equal(Date.parse(attempt.deadline)-Date.parse(attempt.startedAt),150*60_000);
+  for(const [subject,count] of Object.entries(spec.subjectCounts))assert.equal(attempt.questions.filter(q=>q.subject===subject).length,count);
+  const answers=Object.fromEntries(attempt.questions.map(q=>[q.id,q.subject==='Atividade do assessor'?'1':'0']));
+  await c('/attempts/'+attempt.id+'/save','POST',{answers});
+  const {data:finished}=await c('/attempts/'+attempt.id+'/finish','POST',{});
+  assert.equal(finished.result.correct,68);
+  assert.equal(finished.result.approved,false);
+  assert.deepEqual(finished.result.subjectRequirements.filter(rule=>!rule.met).map(rule=>rule.subject),['Atividade do assessor']);
+});
+
+test('árvore de diálogo percorre o ramo escolhido, corrige no servidor e protege o gabarito durante a prova',async t=>{
+  const db=seed(),quiz=db.quizzes.find(q=>q.id==='s1');
+  const model=certificationPilot.find(q=>q.format==='dialogue');
+  const question={id:'tree',prepId:quiz.prepId,subject:model.subject,type:'dialogue',
+    prompt:'Conduza a conversa.',points:1,dialogue:{start:model.start,nodes:model.nodes},status:'published'};
+  db.questions.push(question);
+  quiz.questionIds=['tree'];
+  const f=await fixture(t,db),c=f.client();
+  await student(c);
+  const {data:attempt}=await c('/attempts','POST',{quizId:quiz.id});
+  assert.deepEqual(Object.keys(attempt.questions[0].dialogue.nodes.entrada.choices[0]).sort(),['next','text']);
+  assert.equal((await c('/attempts/'+attempt.id+'/save','POST',{answers:{tree:[1]}})).status,400);
+  assert.equal((await c('/attempts/'+attempt.id+'/save','POST',{answers:{tree:[1,0]}})).status,200);
+  const {data:finished}=await c('/attempts/'+attempt.id+'/finish','POST',{});
+  assert.equal(finished.result.wrong,1);
+  assert.equal(finished.result.pending,0);
+  assert.ok(finished.questions[0].dialogue.nodes.contorno.choices[0].feedback);
+});
+
+test('catálogo de certificações entrega provas completas, com bancos e regras separados',async t=>{
+  const db=seed();
+  const exams=independentCertifications();
+  for(const {prep,quiz,questions} of exams){
+    db.preparations=db.preparations.filter(p=>p.id!==prep.id);
+    db.preparations.push(prep);
+    db.quizzes.push(quiz);
+    db.questions.push(...questions);
+  }
+  const f=await fixture(t,db),c=f.client();
+  await student(c);
+  for(const {prep,quiz,questions} of exams){
+    const spec=certificationSpecs[prep.certification];
+    const {status,data:attempt}=await c('/attempts','POST',{quizId:quiz.id});
+    assert.equal(status,200);
+    assert.equal(attempt.questions.length,spec.questionsPerAttempt);
+    assert.equal(attempt.rules.minimumCorrect,spec.minimumCorrect);
+    assert.equal(attempt.rules.durationMinutes,150);
+    assert.ok(attempt.questions.every(q=>q.prepId===prep.id&&!('correct' in q)));
+    assert.ok(questions.length>attempt.questions.length);
+    assert.deepEqual([...new Set(attempt.questions.map(q=>q.format))].sort(),[...spec.formats].sort());
+    const result=await c('/attempts/'+attempt.id+'/finish','POST',{});
+    assert.equal(result.data.result.approved,false);
+    assert.equal(result.data.result.blank,attempt.questions.length);
+  }
+});
 
 test('Recertificação PQO Operações aplica 30 questões e revela o gabarito comentado ao encerrar em 3h',async t=>{
   const quizId='pqo-recertificacao-operacoes';

@@ -32,7 +32,7 @@ export function cloudAuthPage(kind,{bar,brand,field,icon,hasSession,hasRecoveryK
 }
 const shortTrackName=track=>track.name.replace(/^PQO · /,'');
 export const planModuleField=(tracks,selected,select)=>select('prep','Qual módulo?',tracks.map(track=>[
-  track.id,track.id==='pqo-cadastro'?'Cadastro':shortTrackName(track),
+  track.id,shortTrackName(track),
 ]),selected.id);
 
 function planContents(data,tracks,selected,backToPackage,{E,icon}){
@@ -106,7 +106,7 @@ export function planComparison({data,tracks,selected,prices,actions,money,icon,E
 }
 
 export function cloudCheckout(data,{bar,brand,link,notice,E,select,money,icon},query){
-  const choices=data.preparations.filter(p=>p.track==='pqo'&&p.status==='published'&&isMarketPrep(p.id));
+  const choices=data.preparations.filter(p=>p.track==='pqo'&&p.status==='published'&&p.salesEnabled!==false&&isMarketPrep(p.id));
   const prep=query.get('prep');
   const selected=(query.has('pagamento')?data.preparations:choices).find(p=>p.id===prep)||(!prep?choices[0]:null);
   const offer=query.get('offer')==='all'?'all':'module';

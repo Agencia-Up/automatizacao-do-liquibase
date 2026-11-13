@@ -45,6 +45,38 @@ function drawQuestions(pool,count,attempts){
   return selected;
 }
 
+function assembleQuestions(quiz,pool,count,history){
+  if(!quiz.subjectCounts)return quiz.questionsPerAttempt==null?pool:drawQuestions(pool,count,history);
+  const groups=Object.entries(quiz.subjectCounts);
+  if(groups.reduce((total,[,quantity])=>total+quantity,0)!==count)
+    fail(409,'A distribuição de assuntos deste simulado está incompleta.');
+  const selected=groups.flatMap(([subject,quantity])=>{
+    const candidates=pool.filter(q=>(q.selectionGroup||q.subject)===subject);
+    if(candidates.length<quantity)fail(409,'Há questões insuficientes para um dos assuntos deste simulado.');
+    return drawQuestions(candidates,quantity,history);
+  });
+  for(let i=selected.length-1;i>0;i--){
+    const j=randomInt(i+1);
+    [selected[i],selected[j]]=[selected[j],selected[i]];
+  }
+  return selected;
+}
+
+function dialogueScore(question,path){
+  if(!Array.isArray(path))return null;
+  let nodeId=question.dialogue.start;
+  let earned=0,possible=0;
+  for(const index of path){
+    const node=question.dialogue.nodes[nodeId];
+    const choice=node?.choices[index];
+    if(!Number.isInteger(index)||!choice)return null;
+    earned+=Number(choice.correct===true);
+    possible++;
+    nodeId=choice.next;
+  }
+  return nodeId===null&&possible>0?{earned,possible}:null;
+}
+
 export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.now(),basePath='',initialDb,identity,authorizeAccess,onPersist}={}) {
   if(basePath==='/'||basePath==='')basePath='';
   else if(typeof basePath!=='string'||!/^\/[a-z0-9-]+(?:\/[a-z0-9-]+)*\/?$/i.test(basePath))throw new TypeError('Prefixo de URL inválido.');
@@ -66,7 +98,7 @@ export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.
   const publicQuiz=q=>{
     const pool=quizBank(q), count=Math.min(q.questionsPerAttempt??pool.length,pool.length);
     const qs=pool.slice(0,count);
-    return {...q,questionIds:undefined,count,bankCount:pool.length,objectiveCount:qs.filter(x=>x.type==='objective').length,
+    return {...q,questionIds:undefined,count,bankCount:pool.length,objectiveCount:qs.filter(x=>x.type==='objective'||x.type==='dialogue').length,
       essayCount:qs.filter(x=>x.type==='essay').length,totalPoints:qs.reduce((n,x)=>n+x.points,0),
       optionCounts:[...new Set(pool.filter(x=>x.type==='objective').map(x=>x.options.length))]};
   };
@@ -77,11 +109,25 @@ export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.
   const startSession=(res,u)=>{const token=randomBytes(32).toString('hex');db.sessions.push({token,userId:u.id,expires:now()+7*86400000});res.setHeader('Set-Cookie',`logos_local=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800`);persist();return {...safeUser(u),hasAccess:access(u)};};
   const ownAttempt=(req,id)=>{const u=needAccess(req),a=db.attempts.find(x=>x.id===id&&x.userId===u.id);if(!a)fail(404,'Tentativa não encontrada.');needAccess(req,a.prepId);return a;};
   function score(a) {
-    const objs=a.questions.filter(q=>q.type==='objective');let correct=0,wrong=0,blank=0,points=0,pending=0;
-    for(const q of a.questions){const answer=a.answers[q.id];if(q.type==='objective'){if(answer===undefined||answer==='')blank++;else if(answer===q.correct){correct++;points+=q.points;}else wrong++;}else if(text(answer)){if(a.grades[q.id])points+=a.grades[q.id].points;else pending++;}}
+    const objs=a.questions.filter(q=>q.type==='objective'||q.type==='dialogue');let correct=0,wrong=0,blank=0,points=0,pending=0;
+    const isCorrect=q=>{
+      if(q.type!=='dialogue')return a.answers[q.id]===q.correct;
+      const mark=dialogueScore(q,a.answers[q.id]);
+      return !!mark&&mark.earned===mark.possible;
+    };
+    for(const q of a.questions){const answer=a.answers[q.id];if(q.type==='objective'||q.type==='dialogue'){
+      if(answer===undefined||answer==='')blank++;else if(isCorrect(q)){correct++;points+=q.points;}else wrong++;
+    }else if(text(answer)){if(a.grades[q.id])points+=a.grades[q.id].points;else pending++;}}
     const totalPoints=a.questions.reduce((n,q)=>n+q.points,0);
-    const subjects=[...new Set(objs.map(q=>q.subject))].map(subject=>{const qs=objs.filter(q=>q.subject===subject);return {subject,total:qs.length,correct:qs.filter(q=>a.answers[q.id]===q.correct).length};});
-    return {correct,wrong,blank,subjects,objectiveTotal:objs.length,accuracy:objs.length?correct/objs.length*100:null,points,totalPoints,weightedPercent:totalPoints?points/totalPoints*100:0,pending,approved:pending||a.rules.passPercent===null?null:(points/totalPoints*100>=a.rules.passPercent)};
+    const subjects=[...new Set(objs.map(q=>q.subject))].map(subject=>{const qs=objs.filter(q=>q.subject===subject);return {subject,total:qs.length,correct:qs.filter(isCorrect).length};});
+    const subjectRequirements=Object.entries(a.rules.subjectMinimums||{}).map(([subject,minimum])=>{
+      const actual=subjects.find(row=>row.subject===subject)?.correct||0;
+      return {subject,minimum,correct:actual,met:actual>=minimum};
+    });
+    const approved=pending||a.rules.passPercent===null&&a.rules.minimumCorrect==null?null:
+      (a.rules.minimumCorrect==null?points/totalPoints*100>=a.rules.passPercent:correct>=a.rules.minimumCorrect)
+      &&subjectRequirements.every(rule=>rule.met);
+    return {correct,wrong,blank,subjects,subjectRequirements,objectiveTotal:objs.length,accuracy:objs.length?correct/objs.length*100:null,points,totalPoints,weightedPercent:totalPoints?points/totalPoints*100:0,pending,approved};
   }
   function finish(a){
     if(a.status==='in_progress'){
@@ -97,7 +143,19 @@ export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.
     }
     return a;
   }
-  function viewAttempt(a){if(a.status==='in_progress'&&a.deadline&&now()>=Date.parse(a.deadline))finish(a);const canReview=a.status!=='in_progress'&&a.rules.review;return {...a,serverNow:now(),questions:a.questions.map(q=>{const {correct,explanation,rubric,...visible}=q;return canReview?{...visible,correct,explanation,...(q.type==='essay'?{rubric}:{} )}:visible;})};}
+  function viewAttempt(a){
+    if(a.status==='in_progress'&&a.deadline&&now()>=Date.parse(a.deadline))finish(a);
+    const canReview=a.status!=='in_progress'&&a.rules.review;
+    return {...a,serverNow:now(),questions:a.questions.map(q=>{
+      const {correct,explanation,rubric,dialogue,...visible}=q;
+      if(dialogue){
+        visible.dialogue=canReview?dialogue:{...dialogue,nodes:Object.fromEntries(Object.entries(dialogue.nodes).map(([id,node])=>[
+          id,{...node,choices:node.choices.map(({text,next})=>({text,next}))},
+        ]))};
+      }
+      return canReview?{...visible,correct,explanation,...(q.type==='essay'?{rubric}:{} )}:visible;
+    })};
+  }
   function quizInput(input,current={}){
     const q={...current,...input};q.name=requireText(q.name,'o nome do simulado');if(!db.preparations.some(p=>p.id===q.prepId))fail(400,'Escolha uma preparação válida.');
     if(!Array.isArray(q.questionIds)||!q.questionIds.length||new Set(q.questionIds).size!==q.questionIds.length||q.questionIds.some(id=>!db.questions.some(x=>x.id===id&&x.prepId===q.prepId)))fail(400,'Selecione questões diferentes da mesma preparação.');
@@ -108,8 +166,8 @@ export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.
     const pool=quizBank(q);
     const questionsPerAttempt=q.questionsPerAttempt==null||q.questionsPerAttempt===''?null:Number(q.questionsPerAttempt);
     if(questionsPerAttempt!==null&&(!Number.isInteger(questionsPerAttempt)||questionsPerAttempt<1||questionsPerAttempt>pool.length))fail(400,'Informe uma quantidade por tentativa que caiba no banco de questões elegíveis.');
-    if(questionsPerAttempt!==null&&new Set(pool.map(question=>question.type+'|'+question.points)).size>1)fail(400,'Para sortear parte do banco, use questões do mesmo tipo e valor.');
-    return {id:current.id||uid(),prepId:q.prepId,name:q.name,description:text(q.description,1000),questionIds:q.questionIds,questionsPerAttempt,durationMinutes:q.durationMinutes,passPercent:q.passPercent,maxAttempts:q.maxAttempts,status:q.status==='published'?'published':'draft',review:q.review!==false,calculator:q.calculator===true};
+    if(questionsPerAttempt!==null&&new Set(pool.map(question=>(question.type==='essay'?'essay':'auto')+'|'+question.points)).size>1)fail(400,'Para sortear parte do banco, use o mesmo tipo de correção e valor.');
+    return {...current,id:current.id||uid(),prepId:q.prepId,name:q.name,description:text(q.description,1000),questionIds:q.questionIds,questionsPerAttempt,durationMinutes:q.durationMinutes,passPercent:q.passPercent,maxAttempts:q.maxAttempts,status:q.status==='published'?'published':'draft',review:q.review!==false,calculator:q.calculator===true};
   }
   const workspace=createWorkspace({db,now,stamp,persist,needUser,needAccess,access,viewAttempt});
   const handler=async(req,res)=>{
@@ -190,10 +248,11 @@ export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.
           if(q.maxAttempts&&u.role!=='master'&&history.length>=q.maxAttempts)fail(409,'Você atingiu o limite de tentativas deste simulado.');
           const pool=quizBank(q), count=q.questionsPerAttempt??pool.length;
           if(count<1||count>pool.length)fail(409,'O banco de questões deste simulado está incompleto.');
-          const questions=q.questionsPerAttempt==null?pool:drawQuestions(pool,count,history);
+          const questions=assembleQuestions(q,pool,count,history);
           const a={id:uid(),userId:u.id,quizId:q.id,quizName:q.name,prepId:q.prepId,isTest:u.role==='master',
             status:'in_progress',startedAt:stamp(),updatedAt:stamp(),deadline:q.durationMinutes?new Date(now()+q.durationMinutes*60000).toISOString():null,
-            rules:{durationMinutes:q.durationMinutes,passPercent:q.passPercent,review:q.review,maxAttempts:q.maxAttempts,calculator:q.calculator===true},
+            rules:{durationMinutes:q.durationMinutes,passPercent:q.passPercent,review:q.review,maxAttempts:q.maxAttempts,calculator:q.calculator===true,
+              minimumCorrect:q.minimumCorrect,subjectMinimums:q.subjectMinimums},
             questions:clone(questions),answers:{},flags:[],grades:{}};
           db.attempts.push(a);persist();result=viewAttempt(a);
         }
@@ -201,7 +260,18 @@ export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.
         result=viewAttempt(ownAttempt(req,path.split('/')[3]));
       } else if(/^\/api\/attempts\/[^/]+\/save$/.test(path)&&method==='POST'){
         const a=ownAttempt(req,path.split('/')[3]);viewAttempt(a);if(a.status!=='in_progress')fail(409,'Esta tentativa já foi encerrada.');const answers={};
-        for(const q of a.questions){if(b.answers&&Object.hasOwn(b.answers,q.id)){const value=text(b.answers[q.id],4000);if(q.type==='objective'&&value!==''&&!q.options.some((_,i)=>String(i)===value))fail(400,'Alternativa inválida.');answers[q.id]=value;}}
+        for(const q of a.questions){
+          if(!b.answers||!Object.hasOwn(b.answers,q.id))continue;
+          const submitted=b.answers[q.id];
+          if(q.type==='dialogue'){
+            if(!dialogueScore(q,submitted))fail(400,'Percurso de diálogo inválido.');
+            answers[q.id]=submitted;
+            continue;
+          }
+          const value=text(submitted,4000);
+          if(q.type==='objective'&&value!==''&&!q.options.some((_,i)=>String(i)===value))fail(400,'Alternativa inválida.');
+          answers[q.id]=value;
+        }
         if(Object.hasOwn(b,'tools')){
           const tools={};
           for(const q of a.questions){
