@@ -313,7 +313,12 @@ async function render(){const token=++renderId;try{if(!data)await refresh();cons
  else if(base==='tentativa'){const a=await api('/attempts/'+r.parts[1]);if(currentAttempt?.id!==a.id){questionIndex=0;dirty=false;saveProblem=false;nextExpiryCheck=0;}currentAttempt=a;syncExamClock(a);if(a.status==='in_progress'){try{const draft=JSON.parse(localStorage.getItem(draftKey())||'null');if(draft?.pending){currentAttempt.answers=draft.answers;currentAttempt.flags=draft.flags;currentAttempt.tools=draft.tools??a.tools;dirty=true;saveProblem=!navigator.onLine;setTimeout(saveDraft,100);}}catch{}content=attempt(currentAttempt);}else{dirty=false;saveProblem=false;try{localStorage.removeItem(draftKey());}catch{}content=resultPage(a);}active='simulados';title=a.status==='in_progress'?'Sua tentativa':'Resultado e revisão';}
  else if(base==='anotacoes')content=notesPage();else if(base==='plano')content=planPage();else if(base==='revisao')content=reviewPage();else if(base==='foco')content=focusPage();else if(base==='opiniao')content=feedbackPage(data.user.role==='master'?await api('/feedback'):[]);else if(base==='conta')content=account();else if(base==='admin'){if(data.user.role!=='master'){content=empty('Acesso restrito.','Esta área é exclusiva da administração.');}else{adminData=await api('/admin');content=admin(r.parts[1]||'visao-geral');}title='Administração';}else content=empty('Esta página não foi encontrada.','Volte para sua área de simulação.',link('Ir ao início','#/inicio'));
  html=base==='tentativa'&&currentAttempt?.status==='in_progress'&&data.user.hasAccess?content:shell(content,active,title);}
-
+ if(token!==renderId)return;
+ $('#app').innerHTML=html;
+ window.scrollTo(0,0);
+ if(!base&&r.query.get('secao')==='planos')$('#planos')?.scrollIntoView();
+ if(base==='desempenho'||base==='inicio'&&r.query.has('desempenho'))$('#meu-desempenho')?.focus();
+ tick();workspaceTick();syncWorkspaceMenu();
  }catch(e){if(token!==renderId)return;$('#app').innerHTML=data?.user?shell(errorPage(e),'','Tentar novamente'):bar()+`<main class="public-wrap section">${errorPage(e)}</main>`;}}
 async function action(el){const name=el.dataset.action;
  if(name==='checkout-account'){

@@ -29,7 +29,8 @@ const sign=(secret,value)=>createHmac('sha256',secret).update('public-demo:'+val
 function tokenData(secret,token,now){
   if(!/^[\w-]{24}\.\d{13}\.[\w-]{43}$/.test(token??''))return null;
   const index=token.lastIndexOf('.'),value=token.slice(0,index);
-  if(!timingSafeEqual(Buffer.from(sign(secret,value)),Buffer.from(token.slice(index+1))))return null;
+  const encoder=new TextEncoder();
+  if(!timingSafeEqual(encoder.encode(sign(secret,value)),encoder.encode(token.slice(index+1))))return null;
   const expires=Number(value.split('.')[1]);
   return expires>now&&expires<=now+DAY?{value,expires}:null;
 }
