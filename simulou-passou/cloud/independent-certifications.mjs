@@ -23,7 +23,7 @@ function buildQuestion(cert,prepId,row){
   const id=cert+'-questao-'+cryptoKey(prompt).slice(0,20);
   const common={id,prepId,subject:row.subject,selectionGroup:groupsFor(cert,Number(row.module),row.subject,format),
     module:row.module,subtopic:row.subtopic||row.subject,format,source:certificationSpecs[cert].source,section:row.section,
-    authoredOn:'2026-11-13',status:'published',points:1,prompt};
+    authoredOn:'2026-11-13',status:'published',points:1,prompt,difficulty:row.difficulty||'intermediate'};
   if(format==='dialogue'){
     const nodes=Object.fromEntries(Object.entries(row.nodes).map(([key,node])=>[key,{
       ...node,choices:[...node.choices].sort((a,b)=>cryptoKey(id+a.text).localeCompare(cryptoKey(id+b.text))),
