@@ -10,14 +10,20 @@ const incoming={
   quizzes:[...pqo.quizzes,...certifications.map(({quiz})=>quiz)],
   questions:[...pqo.questions,...certifications.flatMap(({questions})=>questions)],
 };
-const payload=JSON.stringify(incoming);
-if(payload.includes('$hard$'))throw new Error('Delimitador de SQL não permitido no catálogo.');
-if(new Set(incoming.quizzes.map(item=>item.id)).size!==incoming.quizzes.length)throw new Error('IDs de simulados duplicados.');
-if(new Set(incoming.questions.map(item=>item.id)).size!==incoming.questions.length)throw new Error('IDs de questões duplicados.');
-const known=new Set(incoming.questions.map(item=>item.id));
-for(const quiz of incoming.quizzes)for(const id of quiz.questionIds)if(!known.has(id))throw new Error(`Questão ${id} ausente no pacote de ${quiz.id}.`);
+const packages={
+  pqo:{quizzes:pqo.quizzes,questions:pqo.questions},
+  certifications:{quizzes:certifications.map(({quiz})=>quiz),questions:certifications.flatMap(({questions})=>questions)},
+};
 
-const sql=`
+function buildSql(catalog){
+  const payload=JSON.stringify(catalog);
+  if(payload.includes('$hard$'))throw new Error('Delimitador de SQL não permitido no catálogo.');
+  if(new Set(catalog.quizzes.map(item=>item.id)).size!==catalog.quizzes.length)throw new Error('IDs de simulados duplicados.');
+  if(new Set(catalog.questions.map(item=>item.id)).size!==catalog.questions.length)throw new Error('IDs de questões duplicados.');
+  const known=new Set(catalog.questions.map(item=>item.id));
+  for(const quiz of catalog.quizzes)for(const id of quiz.questionIds)if(!known.has(id))throw new Error(`Questão ${id} ausente no pacote de ${quiz.id}.`);
+
+  return `
 do $import$
 declare
   incoming constant jsonb := $hard$${payload}$hard$::jsonb;
@@ -77,9 +83,14 @@ begin
   where id and original is distinct from current_body;
 end $import$;
 `;
+}
 
 const output=resolve(dirname(fileURLToPath(import.meta.url)),'../dist/hard-mode-import.sql');
 mkdirSync(dirname(output),{recursive:true});
-writeFileSync(output,sql);
+writeFileSync(output,buildSql(incoming));
+for(const [name,catalog] of Object.entries(packages)){
+  writeFileSync(resolve(dirname(output),`hard-mode-import-${name}.sql`),buildSql(catalog));
+}
 console.log('Pacote transacional do modo difícil gerado em',output);
+console.log('Pacotes parciais:',Object.keys(packages).map(name=>`hard-mode-import-${name}.sql`).join(', '));
 console.log('Simulados:',incoming.quizzes.length,'Questões:',incoming.questions.length);
