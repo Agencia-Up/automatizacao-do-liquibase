@@ -5,6 +5,7 @@ import {seed} from '../seed.mjs';
 import {pqoCatalog} from '../pqo-catalog.mjs';
 import {certificationPilot,certificationSpecs} from '../certification-specs.mjs';
 import {independentCertifications} from '../cloud/independent-certifications.mjs';
+import {questionsAreSimilar} from '../question-quality.mjs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {unlinkSync,existsSync} from 'node:fs';
@@ -18,7 +19,7 @@ async function paid(c){const order=(await c('/orders','POST',{})).data;await c('
 test('ANCORD respeita as cotas do edital e os mínimos por eixo além dos 56 acertos',async t=>{
   const spec=certificationSpecs.ancord,db=seed(),quiz=db.quizzes.find(q=>q.id==='s1');
   const bank=Object.entries(spec.subjectCounts).flatMap(([subject,count])=>Array.from({length:count+1},(_,i)=>({
-    id:subject+'-'+i,prepId:quiz.prepId,subject,prompt:'Fixture '+subject+' '+i,type:'objective',
+    id:subject+'-'+i,prepId:quiz.prepId,subject,prompt:'Fixture '+subject+' '+i,similarityKey:subject+'-'+i,type:'objective',
     options:['A','B','C','D'],correct:'0',explanation:'Exemplo de teste',points:1,status:'published',
   })));
   db.questions.push(...bank);
@@ -71,11 +72,15 @@ test('catálogo de certificações entrega provas completas, com bancos e regras
   for(const {prep,quiz,questions} of exams){
     const spec=certificationSpecs[prep.certification];
     const {status,data:attempt}=await c('/attempts','POST',{quizId:quiz.id});
-    assert.equal(status,200);
+    assert.equal(status,200,`${prep.certification}: ${JSON.stringify(attempt)}`);
     assert.equal(attempt.questions.length,spec.questionsPerAttempt);
     assert.equal(attempt.rules.minimumCorrect,spec.minimumCorrect);
     assert.equal(attempt.rules.durationMinutes,150);
     assert.ok(attempt.questions.every(q=>q.prepId===prep.id&&!('correct' in q)));
+    for(let i=0;i<attempt.questions.length;i++)for(let j=i+1;j<attempt.questions.length;j++){
+      if(attempt.questions[i].subject===attempt.questions[j].subject)
+        assert.equal(questionsAreSimilar(attempt.questions[i],attempt.questions[j]),false,`${prep.certification}: questões semelhantes no grupo ${attempt.questions[i].subject}`);
+    }
     assert.ok(questions.length>attempt.questions.length);
     assert.deepEqual([...new Set(attempt.questions.map(q=>q.format))].sort(),[...spec.formats].sort());
     const result=await c('/attempts/'+attempt.id+'/finish','POST',{});
