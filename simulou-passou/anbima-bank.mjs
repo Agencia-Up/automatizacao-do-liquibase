@@ -1,4 +1,5 @@
 import {certificationPilot,certificationSpecs} from './certification-specs.mjs';
+import {anbimaAdvancedItems} from './advanced-question-bank.mjs';
 
 const items=[];
 const add=(certification,module,prompt,answer,others,feedback,context)=>items.push({
@@ -167,7 +168,7 @@ pairs('c-pro-r',4,[
  ['Como uma transferência de custódia pode diferir de liquidar a posição?','Ela pode mover a posição entre instituições sem realizar uma venda, conforme o procedimento.','Ela sempre vende e recompra todos os ativos.','Ela exige aumentar a taxa contratada de todos os títulos.','Ela transforma toda posição em caixa.','Movimentar custódia e vender ativos são eventos operacionais distintos.'],
 ]);
 
-export const anbimaItems=[...items,...certificationPilot.filter(q=>q.certification!=='ancord')].map(q=>{
+export const anbimaItems=[...items,...anbimaAdvancedItems,...certificationPilot.filter(q=>q.certification!=='ancord')].map(q=>{
  const module=Number(q.module),subject=Object.keys(certificationSpecs[q.certification].moduleProportions)[module-1];
  const pages={cpa:['4–10','11–19','20–26','27–29'],'c-pro-r':['4–8','9–10','11–20','21–22'],'c-pro-i':['4–19','20–25','26–30','31–33']};
  return {...q,module,subject,section:q.section||`Módulo ${module}, pp. ${pages[q.certification][module-1]}`};

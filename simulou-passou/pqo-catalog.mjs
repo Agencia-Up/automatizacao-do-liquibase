@@ -95,6 +95,7 @@ const specialistChapters = {
   'PRSAC':['compliance'],
 };
 const digest=value=>createHash('sha256').update(value).digest('hex');
+const advancedRows=new Set([...appliedCore,...appliedSpecialty]);
 export function pqoRotationQuestions(quizId,prepId){
   const area=quizId.replace(/^pqo-treino-/,'');
   const recertification=quizId==='pqo-recertificacao-operacoes';
@@ -108,7 +109,7 @@ export function pqoRotationQuestions(quizId,prepId){
     const source=recertification?' Referência · Guia Por Dentro da B3, p. 11, título '+recertificationChapters[subject]+'.'
       :registration?'':' Referência · Guia Por Dentro da B3, quadro de certificação, pp. 9–10.';
     return {id,prepId,subject,prompt,type:'objective',options,correct:String(options.indexOf(answer)),
-      explanation:explanation+source,points:1,status:'published'};
+      explanation:explanation+source,points:1,status:'published',difficulty:'intermediate'};
   });
 }
 const recertificationId='pqo-recertificacao-operacoes';
@@ -140,7 +141,7 @@ function addOperationsRecertification(catalog){
       id,prepId,subject,type:'objective',prompt,options:choices.map(({option})=>option),
       correct:String(choices.findIndex(({option})=>option===answer)),
       explanation:[explanation,'Por que as demais alternativas estão incorretas.',...comments,source].join(' '),
-      points:1,status:'published',
+      points:1,status:'published',difficulty:'advanced',
     };
   }).sort((left,right)=>left.id.localeCompare(right.id));
   const subjects=[...new Set(operationsRecertification.map(([subject])=>subject))];
@@ -162,8 +163,8 @@ function addOperationsRecertification(catalog){
 }
 
 function chooseExam(id){
-  const specialist=[...Object.values(focused).flat(),...appliedSpecialty].filter(([subject])=>specialistChapters[subject]?.includes(id));
-  const coreByTopic=new Map(commonTopics.map(subject=>[subject,[...common,...appliedCore].filter(row=>row[0]===subject)]));
+  const specialist=[...appliedSpecialty,...Object.values(focused).flat()].filter(([subject])=>specialistChapters[subject]?.includes(id));
+  const coreByTopic=new Map(commonTopics.map(subject=>[subject,[...appliedCore,...common].filter(row=>row[0]===subject)]));
   const selected=[...specialist];
   const cadastroLimit=id==='back-office'?4:1;
   for(const [subject,pool] of coreByTopic){
@@ -201,7 +202,7 @@ export function pqoCatalog({practice=false}={}){
       const offset=(index*7+name.length+Math.floor(index/5))%4;
       const options=[b,c,d];
       options.splice(offset,0,answer);
-      return {id:'pqo-'+id+'-q'+(index+1),prepId,subject,type:'objective',prompt,options,correct:String(offset),explanation,points:1,status:'published'};
+      return {id:'pqo-'+id+'-q'+(index+1),prepId,subject,type:'objective',prompt,options,correct:String(offset),explanation,points:1,status:'published',difficulty:'intermediate'};
     });
     catalog.questions.push(...questions);
     const examQuestions=exam?.map(row=>{
@@ -210,7 +211,7 @@ export function pqoCatalog({practice=false}={}){
       const [subject,prompt,answer,b,c,d,explanation]=row;
       const key=digest(id+'|'+prompt);
       const options=[answer,b,c,d].map(option=>[digest(key+'|'+option),option]).sort(([a],[b])=>a.localeCompare(b)).map(([,option])=>option);
-      const question={id:'pqo-'+id+'-cert-'+key.slice(0,16),prepId,subject,type:'objective',prompt,options,correct:String(options.indexOf(answer)),explanation,points:1,status:'published'};
+      const question={id:'pqo-'+id+'-cert-'+key.slice(0,16),prepId,subject,type:'objective',prompt,options,correct:String(options.indexOf(answer)),explanation,points:1,status:'published',difficulty:advancedRows.has(row)?'advanced':'intermediate'};
       catalog.questions.push(question);
       return question;
     });

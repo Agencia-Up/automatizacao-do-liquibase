@@ -6,6 +6,7 @@ import {randomBytes,randomInt,scryptSync,timingSafeEqual} from 'node:crypto';
 import {seed,uid} from './seed.mjs';
 import {createWorkspace} from './workspace.mjs';
 import {publicDemo} from './sample-quiz.mjs';
+import {questionsAreSimilar} from './question-quality.mjs';
 
 const ROOT=dirname(fileURLToPath(import.meta.url));
 const PRICE=2990;
@@ -19,7 +20,7 @@ const passwordOk=(p,stored)=>{try{const [salt,key]=stored.split(':');return timi
 const safeUser=u=>u?{id:u.id,name:u.name,email:u.email,role:u.role,demo:!!u.demo}:null;
 const questionKey=q=>q.prompt?.normalize('NFC').trim().replace(/\s+/g,' ').toLocaleLowerCase('pt-BR')||q.id;
 
-function drawQuestions(pool,count,attempts){
+function drawQuestions(pool,count,attempts,avoid=[]){
   const seen=new Map();
   for(const attempt of attempts){
     for(const key of new Set(attempt.questions.map(questionKey)))seen.set(key,(seen.get(key)||0)+1);
@@ -28,21 +29,28 @@ function drawQuestions(pool,count,attempts){
   const groups=new Map();
   for(const q of pool){
     const key=questionKey(q);
-    const tier=2*(seen.get(key)||0)+Number(last.has(key));
+    const difficultyPenalty=q.difficulty==='advanced'?0:1;
+    const tier=10*(seen.get(key)||0)+2*Number(last.has(key))+difficultyPenalty;
     if(!groups.has(tier))groups.set(tier,[]);
     groups.get(tier).push(q);
   }
-  const selected=[];
-  for(const tier of [...groups.keys()].sort((a,b)=>a-b)){
-    const questions=groups.get(tier);
-    for(let i=questions.length-1;i>0;i--){
-      const j=randomInt(i+1);
-      [questions[i],questions[j]]=[questions[j],questions[i]];
+  const tiers=[...groups.keys()].sort((a,b)=>a-b);
+  for(let pass=0;pass<24;pass++){
+    const selected=[];
+    for(const tier of tiers){
+      const questions=[...groups.get(tier)];
+      for(let i=questions.length-1;i>0;i--){
+        const j=randomInt(i+1);
+        [questions[i],questions[j]]=[questions[j],questions[i]];
+      }
+      for(const question of questions){
+        if([...avoid,...selected].some(other=>questionsAreSimilar(question,other)))continue;
+        selected.push(question);
+        if(selected.length===count)return selected;
+      }
     }
-    selected.push(...questions.slice(0,count-selected.length));
-    if(selected.length===count)break;
   }
-  return selected;
+  fail(409,'O banco ainda não possui conceitos distintos suficientes para montar esta prova sem questões semelhantes.');
 }
 
 function assembleQuestions(quiz,pool,count,history){
@@ -50,11 +58,13 @@ function assembleQuestions(quiz,pool,count,history){
   const groups=Object.entries(quiz.subjectCounts);
   if(groups.reduce((total,[,quantity])=>total+quantity,0)!==count)
     fail(409,'A distribuição de assuntos deste simulado está incompleta.');
-  const selected=groups.flatMap(([subject,quantity])=>{
+  const selected=[];
+  for(const [subject,quantity] of groups){
     const candidates=pool.filter(q=>(q.selectionGroup||q.subject)===subject);
     if(candidates.length<quantity)fail(409,'Há questões insuficientes para um dos assuntos deste simulado.');
-    return drawQuestions(candidates,quantity,history);
-  });
+    try{selected.push(...drawQuestions(candidates,quantity,history));}
+    catch(error){if(error.code===409)fail(409,`O grupo “${subject}” ainda não possui conceitos distintos suficientes para compor a prova sem questões semelhantes.`);throw error;}
+  }
   for(let i=selected.length-1;i>0;i--){
     const j=randomInt(i+1);
     [selected[i],selected[j]]=[selected[j],selected[i]];

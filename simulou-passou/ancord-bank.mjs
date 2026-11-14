@@ -1,4 +1,5 @@
 import {certificationPilot,certificationSpecs} from './certification-specs.mjs';
+import {ancordAdvancedItems} from './advanced-question-bank.mjs';
 
 const conceptSet={
  'Atividade do assessor':[
@@ -132,4 +133,4 @@ const moduleMinimums=certificationSpecs.ancord.subjectCounts;
 for(const [subject,minimum] of Object.entries(moduleMinimums)){
  if(models.filter(q=>q.subject===subject).length<minimum)throw Error('Banco ANCORD incompleto em '+subject);
 }
-export const ancordItems=models.map(q=>({...q,module:sections[q.subject],section:'§ VI.1.3, eixo '+sections[q.subject]}));
+export const ancordItems=[...models,...ancordAdvancedItems].map(q=>({...q,module:sections[q.subject],section:'§ VI.1.3, eixo '+sections[q.subject]}));
