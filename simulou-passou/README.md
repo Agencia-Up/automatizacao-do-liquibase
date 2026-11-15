@@ -50,7 +50,6 @@ Depois do cadastro ou login, a conta abre **Meu painel**. A conta comum não rec
 
 - **Anotações:** criar, editar, fixar, buscar e excluir notas privadas; rascunho preservado no navegador e gravação explícita na conta. Ctrl/Cmd+S salva quando o editor está aberto.
 - **Meu plano:** atividades com data, tipo, vínculo opcional a um simulado, conclusão e reabertura; objetivo de certificação, data planejada e meta semanal editáveis.
-- **Caderno de erros:** objetivas incorretas ou em branco de tentativas encerradas com revisão permitida; criar anotação vinculada, agendar revisão e marcar como revisada sem alterar a nota original.
 - **Modo foco:** duração escolhida pelo usuário, pausa/retomada, navegação entre telas e registro explícito de minutos. Os blocos são registros pessoais e não uma medida automática de aprendizado.
 - **Simulados:** vários modelos por certificação e novas tentativas separadas no histórico. Os exemplos iniciais estão sem limite configurado de tentativas; gabaritos e regras ficam preservados em cada versão.
 - **Administração → Conteúdo a enviar:** contagens reais do catálogo local e roteiro para enviar provas, matérias, materiais, questões e regras.
