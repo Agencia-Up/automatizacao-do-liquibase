@@ -99,7 +99,7 @@ export function planComparison({data,tracks,selected,prices,actions,money,icon,E
     <p class="pricing-payment">Pagamento único · Pix ou cartão</p>
     <div class="pricing-benefits">
       <h3>Incluído nos dois planos</h3>
-      <ul>${['Gabarito comentado','Caderno de erros','Histórico e anotações'].map(text=>`<li>${icon('check',15)} ${text}</li>`).join('')}</ul>
+      <ul>${['Gabarito comentado','Histórico de tentativas','Anotações pessoais'].map(text=>`<li>${icon('check',15)} ${text}</li>`).join('')}</ul>
     </div>
     ${selected?planContents(data,tracks,selected,backToPackage,{E,icon}):''}
   </div>`;

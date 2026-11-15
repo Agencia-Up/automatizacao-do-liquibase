@@ -74,7 +74,7 @@ export function examPage(attempt, index, { E, icon, prepName }) {
         <button type="button" class="exam-tool ${marked ? 'is-active' : ''}" aria-pressed="${marked}" data-action="flag">${icon('flag', 16)} ${marked ? 'Marcada para revisão' : 'Marcar para revisão'}</button>
         <button type="button" class="exam-tool ${ranges.length ? 'is-active' : ''}" data-action="highlight" title="Selecione um trecho do enunciado e toque aqui">${icon('edit', 16)} Marca-texto</button>
         ${ranges.length ? '<button type="button" class="exam-tool" data-action="clear-highlight">Limpar destaque</button>' : ''}
-        ${attempt.rules.calculator ? `<button type="button" class="exam-tool" data-action="exam-calculator">${icon('grid', 16)} Calculadora</button>` : ''}
+        ${attempt.rules.calculator ? `<button type="button" class="exam-tool" data-action="exam-calculator">${icon('grid', 16)} Calculadora HP 12C</button>` : ''}
       </div>
       ${q.type==='dialogue'?dialogueQuestion(q,attempt,E):q.type === 'objective' ? `<div class="options" role="radiogroup" aria-label="Alternativas">${q.options.map((option, i) => `<div class="exam-option ${crossed.includes(i) ? 'is-crossed' : ''}">
         <label class="option"><input type="radio" name="answer" value="${i}" ${attempt.answers[q.id] === String(i) ? 'checked' : ''}><span class="letter">${letters[i]}</span><span class="option-copy">${E(option)}</span></label>
