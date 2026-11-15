@@ -108,7 +108,7 @@ begin
     if entry ?| array['password','sessions','recoveries','orders','localAccess','role'] then
       raise exception 'Unsupported member state' using errcode='22023';
     end if;
-    foreach collection in array array['attempts','completed','notes','studyTasks','studyPreferences','reviewMarks','focusSessions'] loop
+    foreach collection in array array['attempts','completed','notes','studyTasks','studyPreferences','focusSessions'] loop
       for row_item in select value from jsonb_array_elements(coalesce(entry->collection,'[]'::jsonb)) loop
         if (row_item->>'userId') is distinct from owner_id::text then raise exception 'Row owner mismatch' using errcode='42501'; end if;
       end loop;

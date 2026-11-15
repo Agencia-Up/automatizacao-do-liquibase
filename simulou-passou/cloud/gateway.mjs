@@ -6,7 +6,7 @@ import {createApp} from '../server.mjs';
 import {seed} from '../seed.mjs';
 import {publicDemo} from '../sample-quiz.mjs';
 
-const personal=['attempts','completed','notes','studyTasks','studyPreferences','reviewMarks','focusSessions'];
+const personal=['attempts','completed','notes','studyTasks','studyPreferences','focusSessions'];
 const catalogKeys=['preparations','materials','questions','quizzes'];
 const fault=(status,message,code)=>Object.assign(new Error(message),{status,code});
 const copy=x=>structuredClone(x);

@@ -2,6 +2,7 @@ import {createHash} from 'node:crypto';
 import {certificationSpecs} from '../certification-specs.mjs';
 import {ancordItems} from '../ancord-bank.mjs';
 import {anbimaItems} from '../anbima-bank.mjs';
+import {hardenCertificationRow} from '../exam-rigor.mjs';
 
 const preparationIds={ancord:'ancord',cpa:'proxima','c-pro-r':'pqo-comercial','c-pro-i':'pqo-compliance'};
 const replacedQuizzes={ancord:['s1','s2'],cpa:[],'c-pro-r':['pqo-treino-comercial'],'c-pro-i':['pqo-treino-compliance']};
@@ -23,7 +24,8 @@ function buildQuestion(cert,prepId,row){
   const id=cert+'-questao-'+cryptoKey(prompt).slice(0,20);
   const common={id,prepId,subject:row.subject,selectionGroup:groupsFor(cert,Number(row.module),row.subject,format),
     module:row.module,subtopic:row.subtopic||row.subject,format,source:certificationSpecs[cert].source,section:row.section,
-    authoredOn:'2026-11-13',status:'published',points:1,prompt,difficulty:row.difficulty||'intermediate'};
+    authoredOn:'2026-11-14',status:'published',points:1,prompt,difficulty:row.difficulty||'intermediate',cognitiveLevel:row.cognitiveLevel||'application',
+    editorialStandard:row.editorialStandard};
   if(format==='dialogue'){
     const nodes=Object.fromEntries(Object.entries(row.nodes).map(([key,node])=>[key,{
       ...node,choices:[...node.choices].sort((a,b)=>cryptoKey(id+a.text).localeCompare(cryptoKey(id+b.text))),
@@ -63,7 +65,8 @@ function composition(cert,spec){
 export function independentCertifications(){
   return Object.entries(certificationSpecs).map(([cert,spec])=>{
     const prepId=preparationIds[cert];
-    const rows=cert==='ancord'?ancordItems:anbimaItems.filter(q=>q.certification===cert);
+    const rows=(cert==='ancord'?ancordItems:anbimaItems.filter(q=>q.certification===cert))
+      .map((row,index)=>hardenCertificationRow(cert,row,index));
     const questions=rows.map(row=>buildQuestion(cert,prepId,row));
     const subjectCounts=composition(cert,spec);
     if(new Set(questions.map(q=>q.id)).size!==questions.length||questions.some(q=>q.options&&new Set(q.options).size!==4))
@@ -76,7 +79,7 @@ export function independentCertifications(){
     return {
       prep:{id:prepId,name:spec.name,track:'pqo',certification:cert,status:'published',demo:false,training:false,color:'blue',description,subjects:[...new Set(questions.map(q=>q.subject))]},
       quiz:{id:cert+'-certificacao',prepId,name:spec.name,status:'published',description,questionIds:questions.map(q=>q.id),durationMinutes:150,questionsPerAttempt:spec.questionsPerAttempt,
-        passPercent:null,minimumCorrect:spec.minimumCorrect,subjectCounts,subjectMinimums:spec.subjectMinimums,review:true,calculator:cert==='ancord',maxAttempts:null},
+        passPercent:null,minimumCorrect:spec.minimumCorrect,subjectCounts,subjectMinimums:spec.subjectMinimums,review:true,calculator:true,maxAttempts:null},
       questions,
       material:{id:cert+'-programa-oficial',prepId,module:'Programa oficial',title:cert==='ancord'?'Regulamento ANCORD/FGV':'Programa detalhado da ANBIMA',
         format:'link',body:spec.source,status:'published'},
