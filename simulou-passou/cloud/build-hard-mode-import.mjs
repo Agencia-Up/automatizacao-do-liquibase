@@ -14,10 +14,13 @@ const packages={
   pqo:{quizzes:pqo.quizzes,questions:pqo.questions},
   certifications:{quizzes:certifications.map(({quiz})=>quiz),questions:certifications.flatMap(({questions})=>questions)},
 };
+const byId=new Map(incoming.questions.map(question=>[question.id,question]));
+for(const quiz of incoming.quizzes){
+  packages[`quiz-${quiz.id}`]={quizzes:[quiz],questions:quiz.questionIds.map(id=>byId.get(id))};
+}
 
 function buildSql(catalog){
-  const payload=JSON.stringify(catalog);
-  if(payload.includes('$hard$'))throw new Error('Delimitador de SQL não permitido no catálogo.');
+  const payload=Buffer.from(JSON.stringify(catalog),'utf8').toString('base64');
   if(new Set(catalog.quizzes.map(item=>item.id)).size!==catalog.quizzes.length)throw new Error('IDs de simulados duplicados.');
   if(new Set(catalog.questions.map(item=>item.id)).size!==catalog.questions.length)throw new Error('IDs de questões duplicados.');
   const known=new Set(catalog.questions.map(item=>item.id));
@@ -26,7 +29,7 @@ function buildSql(catalog){
   return `
 do $import$
 declare
-  incoming constant jsonb := $hard$${payload}$hard$::jsonb;
+  incoming constant jsonb := convert_from(decode($hard$${payload}$hard$,'base64'),'UTF8')::jsonb;
   current_body jsonb;
   original jsonb;
 begin
@@ -68,7 +71,10 @@ begin
 
   current_body := jsonb_set(current_body,'{quizzes}',(
     with targets as (select quiz from jsonb_array_elements(incoming->'quizzes') quiz)
-    select jsonb_agg(coalesce((select target.quiz from targets target where target.quiz->>'id'=current.quiz->>'id'),current.quiz) order by ordinal)
+    select jsonb_agg(coalesce((
+      select target.quiz || jsonb_build_object('status',current.quiz->>'status')
+      from targets target where target.quiz->>'id'=current.quiz->>'id'
+    ),current.quiz) order by ordinal)
     from jsonb_array_elements(current_body->'quizzes') with ordinality current(quiz,ordinal)
   ));
 

@@ -1,5 +1,6 @@
 import {certificationPilot,certificationSpecs} from './certification-specs.mjs';
 import {anbimaAdvancedItems} from './advanced-question-bank.mjs';
+import {anbimaOfficialStyleItems} from './anbima-official-style-bank.mjs';
 
 const items=[];
 const add=(certification,module,prompt,answer,others,feedback,context)=>items.push({
@@ -35,7 +36,7 @@ sequence(18,i=>{
 });
 sequence(10,i=>{
  const notional=100000+i*26000,d=2+i%4,bps=20+i*9,change=notional*d*bps/10000;
- add('c-pro-i',1,`Uma carteira de renda fixa de ${brl(notional)} tem duration modificada de ${d}. Se as taxas subirem ${bps} pontos-base em paralelo, qual a perda estimada sem convexidade?`,brl(change),[brl(change/d),brl(change*2),brl(change/2.5)],'Use a aproximação de primeira ordem: valor da carteira × duration modificada × variação decimal da taxa.');
+ add('c-pro-i',1,`Uma carteira prefixada vale ${brl(notional)} e tem duration modificada de ${d}. A mesa precisa estimar o impacto imediato de uma alta paralela de ${bps} pontos-base na curva. Desconsiderando a convexidade, qual é o valor estimado da perda?`,brl(change),[brl(change/d),brl(change*2),brl(change/2.5)],'A variação de preço é negativa. O valor da perda é a duration modificada multiplicada pelo valor da carteira e pela variação da taxa em formato decimal.');
 });
 pairs('c-pro-i',2,[
  ['Qual risco tem relação direta com o lastro de um FIDC?','A inadimplência e a qualidade dos direitos creditórios.','O retorno garantido de ações de grande empresa.','O preço do seguro do administrador.','A taxa de custódia do Tesouro isoladamente.','O fluxo dos créditos e as características da estrutura afetam o risco de uma classe.'],
@@ -58,32 +59,53 @@ pairs('c-pro-i',3,[
  ['Qual análise distingue um plano corporativo com contrapartida da empresa?','Regras de contribuição, elegibilidade e direito aos aportes patronais.','Taxa de câmbio diária da companhia.','Somente o retorno do Ibovespa no mês.','A previsão de que todo empregado recebe a mesma renda.','Regras do plano e condições de aquisição do direito afetam o benefício acumulado.'],
  ]);
 sequence(16,i=>{
- const amount=80000+i*8500,principal=60000+i*6000,tax=10+i%4*5,taxBase=amount-principal;
- add('c-pro-i',3,`Em um VGBL, o saldo é ${brl(amount)} e o total aportado correspondente é ${brl(principal)}. Com alíquota efetiva de ${tax}% no exercício, qual o imposto sobre esse resgate integral?`,brl(taxBase*tax/100),[brl(amount*tax/100),brl(principal*tax/100),brl(taxBase)],'No VGBL deste cenário, a base corresponde ao ganho sobre o principal. A alíquota é premissa do exercício.','O cliente compara impactos tributários na saída da fase de acumulação.');
+ const amount=80000+i*8500,principal=60000+i*6000,taxBase=amount-principal;
+ const ages=[1,3,5,7,9,11],rates=[35,30,25,20,15,10],position=(i-1)%ages.length,age=ages[position],tax=rates[position],wrongRate=rates[(position+2)%rates.length];
+ add('c-pro-i',3,`Uma pessoa resgata integralmente um VGBL de ${brl(amount)}, formado por aporte único de ${brl(principal)} realizado há ${age} ${age===1?'ano':'anos'}. Na contratação, ela escolheu o regime regressivo e não houve portabilidade nem resgate anterior. Qual valor deve ser retido?`,brl(taxBase*tax/100),[brl(amount*tax/100),brl(taxBase*wrongRate/100),brl(principal*tax/100)],`O prazo do aporte determina a faixa regressiva de ${tax}%; no VGBL, a base é a diferença de ${brl(taxBase)} entre saldo e aporte.`,`A equipe recebeu saldo, histórico do lote e modalidade, mas o sistema não exibe a alíquota nem a base aplicável.`);
 });
 sequence(15,i=>{
- const riskFree=4+i%3,premium=3+i%4,beta=0.55+i/40,total=riskFree+beta*premium;
- add('c-pro-i',4,`No CAPM, a taxa livre de risco é ${riskFree}% e o prêmio de mercado é ${premium}%. Com beta de ${beta.toFixed(2).replace('.',',')}, qual retorno exigido pelo modelo?`,percent(total),[percent(riskFree+premium),percent(beta*premium),percent(riskFree+premium/beta)],'Some a taxa livre de risco ao produto do beta pelo prêmio de mercado.','A gestora está estimando o custo de capital sob as premissas do CAPM.');
+ const riskFree=4+i%3,premium=3+i%4,beta=Math.round((550+25*i)/10)/100;
+ const total=riskFree+beta*premium;
+ add('c-pro-i',4,`Uma gestora precisa definir a taxa de desconto dos fluxos para os acionistas. A taxa livre de risco é ${riskFree}%, o prêmio esperado de mercado é ${premium}% e o beta da ação é ${beta.toFixed(2).replace('.',',')}. Qual retorno deve ser exigido sobre o capital próprio?`,percent(total),[percent(riskFree+premium),percent(beta*premium),percent(riskFree+premium/beta)],'Some a taxa livre de risco ao produto do beta pelo prêmio de mercado.');
 });
 pairs('c-pro-i',4,[
  ['Uma carteira tem ativos com correlação abaixo de 1. O que essa característica pode permitir?','Redução de volatilidade pela diversificação, conforme pesos e covariâncias.','Eliminação de toda perda.','Igualar riscos individuais aos da carteira.','Garantir retorno esperado acima de todos os ativos.','O risco da carteira inclui as covariâncias. A relação entre ativos influencia a volatilidade conjunta.'],
  ['O que o índice de Sharpe relaciona na formulação usual?','Excesso de retorno frente à taxa de referência e volatilidade.','Volatilidade e quantidade de cotas emitidas.','Retorno absoluto e número de funcionários.','Total de resgates e taxa de administração.','O indicador padroniza o excesso de retorno pelo risco medido por volatilidade.'],
  ['Uma carteira supera seu benchmark com exposição agressiva ao mesmo fator de mercado. Qual análise ajuda a separar o efeito?','Estimar a exposição aos fatores e comparar o retorno ajustado ao risco.','Concluir habilidade pela diferença bruta sem contexto.','Usar somente a quantidade de ativos.','Ignorar benchmark e volatilidade.','Atribuir resultados exige identificar a contribuição do risco sistemático e do posicionamento.'],
  ]);
-for(const [cert,module,amount] of [['cpa',3,8000],['cpa',4,15000],['c-pro-i',1,120000],['c-pro-i',2,175000],['c-pro-i',3,250000],['c-pro-i',4,400000]]){
+for(const [cert,module] of [['cpa',3],['cpa',4],['c-pro-i',1],['c-pro-i',2],['c-pro-i',3],['c-pro-i',4]]){
  const scenarios={
- 'cpa-3':['Preciso decidir o que faço com a reserva antes de daqui a quatro meses.','Vamos confirmar o prazo e a necessidade de manter o dinheiro disponível.','Podemos desconsiderar o prazo e escolher o retorno mais alto.','O prazo e a finalidade são dados do diagnóstico.'],
+ 'cpa-3':['Vou usar parte da reserva daqui a quatro meses. Posso aplicar o saldo inteiro em um título que vence em dois anos?','Separemos a despesa da parcela que pode ficar investida, avaliando prazo e risco de saída de cada uma.','Como o título admite venda antecipada, podemos usar o mesmo investimento para as duas parcelas.','Venda antecipada não garante o valor necessário na data da despesa.'],
  'cpa-4':['Uma ferramenta sugeriu compartilhar meu extrato com uma empresa que desconheço.','Confirme a finalidade, a instituição e as condições de consentimento antes de autorizar.','Compartilhe todo o histórico, já que o pedido é digital.','Compartilhamento depende de finalidade, escopo e autorização.'],
  'c-pro-i-1':['O resgate da classe é em data diferente da cotização.','Vamos conferir ambos os prazos e a exposição até a saída.','A data do pedido sempre é a data do pagamento.','Cotização e pagamento têm funções distintas.'],
  'c-pro-i-2':['A exposição no exterior está toda em moeda estrangeira.','Vamos medir o efeito cambial e decidir se cabe hedge.','O câmbio é irrelevante para o resultado em reais.','A moeda pode ampliar ou diminuir o retorno convertido.'],
  'c-pro-i-3':['Planejo começar os saques e temo perdas no primeiro ano.','Vamos avaliar o risco de sequência e os fluxos da estratégia de retirada.','Use apenas o retorno médio e ignore a ordem dos retornos.','A sequência de retorno importa quando existem retiradas.'],
  'c-pro-i-4':['A carteira se afastou dos pesos permitidos após mudanças de preço.','Vamos medir o desvio e os custos antes de propor o rebalanceamento.','Ignore os pesos enquanto o retorno passado estiver positivo.','Limites e custos orientam o rebalanceamento.'],
  };
- const [question,good,bad,why]=scenarios[cert+'-'+module];
- dialogue(cert,module,`Avalie as decisões do atendimento sobre ${brl(amount)}.`,'A pessoa investidora pede uma orientação técnica.',question,[[good,why],[bad,why]],[
- ['Que dados você verificaria para confirmar a decisão?','Os dados do cliente, as condições do instrumento e o objetivo da análise.','Apenas a última cotação anunciada.','A análise precisa considerar insumos relevantes e registros verificáveis.'],
- ['O que pode acontecer se os elementos essenciais forem ignorados?','A recomendação pode ficar incompatível com a necessidade ou com o risco assumido.','Os dados que faltam não afetam decisão nenhuma.','Uma decisão precisa de evidência suficiente para seu contexto.'],
- ]);
+ const cases={
+  'cpa-3':['Oriente o uso de uma reserva para uma despesa já agendada.','Uma família precisa pagar a entrada de um imóvel em quatro meses.',[
+   ['O intermediário disse que recompra o título todos os dias.','Compare o preço possível na data de venda com o valor inadiável da entrada.','Considere o principal contratado como preço mínimo de recompra.','Liquidez e estabilidade de preço são características diferentes.'],
+   ['Se a taxa de mercado subir antes da entrada, como muda o plano?','Mantenha a verba da entrada em alternativa compatível com o prazo e a preservação do valor.','Mantenha o título longo, pois a alta da taxa aumenta seu preço de revenda.','A alta da taxa reduz o preço do título prefixado já emitido.']]],
+  'cpa-4':['Avalie a solicitação de compartilhamento de dados feita pelo aplicativo.','O cliente quer comparar ofertas de crédito sem conceder acesso permanente ao extrato.',[
+   ['Só preciso comparar duas propostas. Devo autorizar cinco anos de extratos?','Verifique se a consulta pode usar um período menor e quais campos a comparação exige.','Autorize o histórico inteiro se a ferramenta declarar que faz análise de crédito.','A finalidade deve justificar a extensão do compartilhamento.'],
+   ['Posso interromper o acesso depois da comparação?','Confira o mecanismo de revogação e as condições informadas antes de consentir.','Troque a senha do banco para garantir o cancelamento do consentimento.','A revogação deve seguir os canais e regras do compartilhamento.']]],
+  'c-pro-i-1':['Interprete o calendário de saída da classe de fundo.','O caixa de uma empresa deve liquidar uma obrigação em data fixa.',[
+   ['A cota é apurada na sexta, mas o pagamento está previsto para terça.','Use terça para o fluxo de caixa e a sexta como referência de cotização.','Use sexta como entrada de caixa, pois nessa data o valor já é conhecido.','Cotização define o valor e liquidação define quando o caixa fica disponível.'],
+   ['Se o ativo cair após o pedido, o preço do resgate pode mudar?','Verifique se a queda ocorreu antes da data de cotização aplicável.','Use o preço conhecido na data do pedido em qualquer hipótese.','O pedido não determina por si só a cota usada.']]],
+  'c-pro-i-2':['Explique a exposição cambial de uma carteira internacional.','O relatório mede em reais um patrimônio investido em títulos no exterior.',[
+   ['Tenho uma despesa em dólar que vence junto dos títulos.','Dimensione a exposição líquida após considerar moeda, valor e data do passivo.','Proteja todo o saldo em dólares olhando somente o ativo.','Um passivo compatível pode criar proteção natural.'],
+   ['O título subiu em dólar, mas o real também ficou mais forte.','Combine os fatores de retorno do título e da moeda para apurar o resultado aberto em reais.','Registre o ganho em dólar diretamente como retorno em reais.','A conversão altera o retorno antes de considerar eventual hedge.']]],
+  'c-pro-i-3':['Revise um plano de retiradas em cenário adverso.','Uma participante começa a viver da carteira e fará retiradas mensais.',[
+   ['As projeções têm a mesma média. Por que priorizar a liquidez agora?','Simule perdas no início dos saques e quanto das posições teria de ser vendido.','Compare apenas a média e mantenha o plano sempre que ela for igual.','A ordem dos retornos importa quando há retirada de capital.'],
+   ['A queda inicial já aconteceu. O que deve entrar na revisão?','Recalcule a taxa de retirada sobre o novo saldo e o caixa disponível para despesas.','Aumente a retirada porque o retorno esperado de longo prazo permanece igual.','A perda inicial reduz a base disponível para financiar retiradas futuras.']]],
+  'c-pro-i-4':['Avalie o reenquadramento de uma carteira após valorização das ações.','O cliente fará um novo aporte em breve e uma venda imediata tem custo tributário.',[
+   ['O desvio ainda está dentro da banda e o aporte chega amanhã.','Compare o ajuste via aporte com uma venda, considerando custos e risco até amanhã.','Venda todo o excesso hoje porque qualquer desvio da meta exige negociação.','Banda, prazo e custos permitem comparar as intervenções.'],
+   ['O desvio já excede o limite e o aporte foi adiado.','Trate o desenquadramento conforme a política e dimensione a ordem necessária.','Aguarde o aporte sem escalonar, pois a carteira se desviou por valorização.','A origem do desvio não elimina o limite vigente.']]],
+ };
+ const key=cert+'-'+module;
+ const [question,good,bad,why]=scenarios[key];
+ const [prompt,context,followups]=cases[key];
+ dialogue(cert,module,prompt,context,question,[[good,why],[bad,why]],followups);
 }
 
 sequence(8,i=>{const v=2000+i*1000,r=1+i%3,t=2+i%4,end=v*(1+r/100)**t;add('cpa',1,`Qual é o montante aproximado de ${brl(v)} a ${r}% ao mês por ${t} meses, com juros compostos?`,brl(end),[brl(v*(1+r*t/100)),brl(v*(1+r/100)),brl(end-v)],'Juros compostos incidem sobre o saldo acumulado. O cálculo é principal × fator mensal elevado ao número de períodos.');});
@@ -168,7 +190,7 @@ pairs('c-pro-r',4,[
  ['Como uma transferência de custódia pode diferir de liquidar a posição?','Ela pode mover a posição entre instituições sem realizar uma venda, conforme o procedimento.','Ela sempre vende e recompra todos os ativos.','Ela exige aumentar a taxa contratada de todos os títulos.','Ela transforma toda posição em caixa.','Movimentar custódia e vender ativos são eventos operacionais distintos.'],
 ]);
 
-export const anbimaItems=[...items,...anbimaAdvancedItems,...certificationPilot.filter(q=>q.certification!=='ancord')].map(q=>{
+export const anbimaItems=[...items,...anbimaAdvancedItems,...anbimaOfficialStyleItems,...certificationPilot.filter(q=>q.certification!=='ancord')].map(q=>{
  const module=Number(q.module),subject=Object.keys(certificationSpecs[q.certification].moduleProportions)[module-1];
  const pages={cpa:['4–10','11–19','20–26','27–29'],'c-pro-r':['4–8','9–10','11–20','21–22'],'c-pro-i':['4–19','20–25','26–30','31–33']};
  return {...q,module,subject,section:q.section||`Módulo ${module}, pp. ${pages[q.certification][module-1]}`};

@@ -6,7 +6,7 @@ import {randomBytes,randomInt,scryptSync,timingSafeEqual} from 'node:crypto';
 import {seed,uid} from './seed.mjs';
 import {createWorkspace} from './workspace.mjs';
 import {publicDemo} from './sample-quiz.mjs';
-import {questionsAreSimilar} from './question-quality.mjs';
+import {questionTemplateKey,questionsAreSimilar} from './question-quality.mjs';
 
 const ROOT=dirname(fileURLToPath(import.meta.url));
 const PRICE=2990;
@@ -20,7 +20,15 @@ const passwordOk=(p,stored)=>{try{const [salt,key]=stored.split(':');return timi
 const safeUser=u=>u?{id:u.id,name:u.name,email:u.email,role:u.role,demo:!!u.demo}:null;
 const questionKey=q=>q.prompt?.normalize('NFC').trim().replace(/\s+/g,' ').toLocaleLowerCase('pt-BR')||q.id;
 
-function drawQuestions(pool,count,attempts,avoid=[]){
+const isAdvanced=q=>['advanced','avançada'].includes(q.difficulty);
+function difficultyTarget(pool,count){
+  const uniqueByLevel=[true,false].map(level=>new Set(pool.filter(q=>isAdvanced(q)===level).map(questionTemplateKey)).size);
+  const [advanced,standard]=uniqueByLevel;
+  if(!advanced||!standard)return null;
+  return Math.round(count*advanced/(advanced+standard));
+}
+
+function drawQuestions(pool,count,attempts,previousGroups=[]){
   const seen=new Map();
   for(const attempt of attempts){
     for(const key of new Set(attempt.questions.map(questionKey)))seen.set(key,(seen.get(key)||0)+1);
@@ -29,14 +37,19 @@ function drawQuestions(pool,count,attempts,avoid=[]){
   const groups=new Map();
   for(const q of pool){
     const key=questionKey(q);
-    const difficultyPenalty=q.difficulty==='advanced'?0:1;
-    const tier=10*(seen.get(key)||0)+2*Number(last.has(key))+difficultyPenalty;
+    const tier=10*(seen.get(key)||0)+2*Number(last.has(key));
     if(!groups.has(tier))groups.set(tier,[]);
     groups.get(tier).push(q);
   }
   const tiers=[...groups.keys()].sort((a,b)=>a-b);
-  for(let pass=0;pass<24;pass++){
+  const earlierTemplates=new Set(previousGroups.map(questionTemplateKey));
+  const templates=new Map(pool.map(q=>[q,questionTemplateKey(q)]));
+  const conflicts=new Map();
+  const target=difficultyTarget(pool,count);
+  for(let pass=0;pass<32;pass++){
     const selected=[];
+    let advanced=0,standard=0;
+    const tolerance=pass<8?0:pass<16?1:pass<24?2:count;
     for(const tier of tiers){
       const questions=[...groups.get(tier)];
       for(let i=questions.length-1;i>0;i--){
@@ -44,8 +57,18 @@ function drawQuestions(pool,count,attempts,avoid=[]){
         [questions[i],questions[j]]=[questions[j],questions[i]];
       }
       for(const question of questions){
-        if([...avoid,...selected].some(other=>questionsAreSimilar(question,other)))continue;
+        const harder=isAdvanced(question);
+        if(target!==null&&(harder?advanced>=target+tolerance:standard>=count-target+tolerance))continue;
+        if(earlierTemplates.has(templates.get(question)))continue;
+        if(!conflicts.has(question))conflicts.set(question,new Map());
+        const related=conflicts.get(question);
+        if(selected.some(other=>{
+          if(!related.has(other))related.set(other,questionsAreSimilar(question,other));
+          return related.get(other);
+        }))continue;
         selected.push(question);
+        if(harder)advanced++;
+        else standard++;
         if(selected.length===count)return selected;
       }
     }
@@ -62,7 +85,7 @@ function assembleQuestions(quiz,pool,count,history){
   for(const [subject,quantity] of groups){
     const candidates=pool.filter(q=>(q.selectionGroup||q.subject)===subject);
     if(candidates.length<quantity)fail(409,'Há questões insuficientes para um dos assuntos deste simulado.');
-    try{selected.push(...drawQuestions(candidates,quantity,history));}
+    try{selected.push(...drawQuestions(candidates,quantity,history,selected));}
     catch(error){if(error.code===409)fail(409,`O grupo “${subject}” ainda não possui conceitos distintos suficientes para compor a prova sem questões semelhantes.`);throw error;}
   }
   for(let i=selected.length-1;i>0;i--){
@@ -177,7 +200,7 @@ export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.
     const questionsPerAttempt=q.questionsPerAttempt==null||q.questionsPerAttempt===''?null:Number(q.questionsPerAttempt);
     if(questionsPerAttempt!==null&&(!Number.isInteger(questionsPerAttempt)||questionsPerAttempt<1||questionsPerAttempt>pool.length))fail(400,'Informe uma quantidade por tentativa que caiba no banco de questões elegíveis.');
     if(questionsPerAttempt!==null&&new Set(pool.map(question=>(question.type==='essay'?'essay':'auto')+'|'+question.points)).size>1)fail(400,'Para sortear parte do banco, use o mesmo tipo de correção e valor.');
-    return {...current,id:current.id||uid(),prepId:q.prepId,name:q.name,description:text(q.description,1000),questionIds:q.questionIds,questionsPerAttempt,durationMinutes:q.durationMinutes,passPercent:q.passPercent,maxAttempts:q.maxAttempts,status:q.status==='published'?'published':'draft',review:q.review!==false,calculator:q.calculator===true};
+    return {...current,id:current.id||uid(),prepId:q.prepId,name:q.name,description:text(q.description,1000),questionIds:q.questionIds,questionsPerAttempt,durationMinutes:q.durationMinutes,passPercent:q.passPercent,maxAttempts:q.maxAttempts,status:q.status==='published'?'published':'draft',review:q.review!==false,calculator:true};
   }
   const workspace=createWorkspace({db,now,stamp,persist,needUser,needAccess,access,viewAttempt});
   const handler=async(req,res)=>{
@@ -261,7 +284,7 @@ export function createApp({dataFile=join(ROOT,'data','local.json'),now=()=>Date.
           const questions=assembleQuestions(q,pool,count,history);
           const a={id:uid(),userId:u.id,quizId:q.id,quizName:q.name,prepId:q.prepId,isTest:u.role==='master',
             status:'in_progress',startedAt:stamp(),updatedAt:stamp(),deadline:q.durationMinutes?new Date(now()+q.durationMinutes*60000).toISOString():null,
-            rules:{durationMinutes:q.durationMinutes,passPercent:q.passPercent,review:q.review,maxAttempts:q.maxAttempts,calculator:q.calculator===true,
+            rules:{durationMinutes:q.durationMinutes,passPercent:q.passPercent,review:q.review,maxAttempts:q.maxAttempts,calculator:true,
               minimumCorrect:q.minimumCorrect,subjectMinimums:q.subjectMinimums},
             questions:clone(questions),answers:{},flags:[],grades:{}};
           db.attempts.push(a);persist();result=viewAttempt(a);

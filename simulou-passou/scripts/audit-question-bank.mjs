@@ -32,6 +32,12 @@ const questions=[...pqo.questions,...independent.flatMap(exam=>exam.questions)];
 const quizzes=[...pqo.quizzes,...independent.map(exam=>exam.quiz)];
 const byId=new Map(questions.map(question=>[question.id,question]));
 const absolute=/\b(sempre|nunca|qualquer|automaticamente|exclusivamente|somente|garante|elimina toda|dispensa)\b/i;
+const answerLeak=/\b(?:no CAPM|alíquota (?:efetiva )?de\s*\d|por juros (?:simples|compostos)|use a aproximação de primeira ordem|a taxa aplicável é|é isent[oa] porque|incide[m]? \d+(?:[.,]\d+)?%)\b/i;
+const directRecall=/^(?:qual|que|quem|em qual)\b/i;
+const adjacentDuplicateSentence=value=>{
+  const sentences=String(value).match(/[^.!?]+[.!?]+/g)?.map(sentence=>sentence.trim().toLocaleLowerCase('pt-BR'))||[];
+  return sentences.some((sentence,index)=>index>0&&sentence===sentences[index-1]);
+};
 const reports=[];
 const compatibleCount=questions=>{
   const adjacency=new Map(questions.map(question=>[question,new Set()]));
@@ -69,6 +75,9 @@ for(const quiz of quizzes){
   }
   similar.sort((a,b)=>b.score-a.score);
   const weakDistractors=pool.filter(question=>question.type==='objective'&&question.options.some((option,index)=>index!==Number(question.correct)&&absolute.test(option)));
+  const answerLeaks=pool.filter(question=>answerLeak.test(`${question.context||''} ${question.prompt}`));
+  const directRecallQuestions=pool.filter(question=>question.type==='objective'&&directRecall.test(question.prompt.trim())&&`${question.context||''} ${question.prompt}`.length<220);
+  const duplicatedScaffolding=pool.filter(question=>adjacentDuplicateSentence(`${question.context||''} ${question.prompt}`));
   const promptLengths=pool.map(question=>question.prompt.length).sort((a,b)=>a-b);
   const groupCoverage=Object.entries(quiz.subjectCounts||{}).map(([group,required])=>{
     const groupQuestions=pool.filter(question=>(question.selectionGroup||question.subject)===group);
@@ -84,6 +93,11 @@ for(const quiz of quizzes){
     similarPairs:similar.slice(0,20),
     similarPairCount:similar.length,
     weakDistractorQuestionCount:weakDistractors.length,
+    answerLeakQuestionCount:answerLeaks.length,
+    directRecallQuestionCount:directRecallQuestions.length,
+    duplicatedScaffoldingQuestionCount:duplicatedScaffolding.length,
+    advancedShare:Number((pool.filter(question=>question.difficulty==='advanced').length/Math.max(pool.length,1)).toFixed(3)),
+    applicationShare:Number((pool.filter(question=>question.cognitiveLevel==='application').length/Math.max(pool.length,1)).toFixed(3)),
     missingDifficulty:pool.filter(question=>!question.difficulty).length,
     compatibleCount:compatibleCount(pool),
     groupCoverage,
