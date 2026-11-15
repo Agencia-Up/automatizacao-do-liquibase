@@ -77,6 +77,8 @@ test('catálogo de certificações entrega provas completas, com bancos e regras
     assert.equal(attempt.rules.minimumCorrect,spec.minimumCorrect);
     assert.equal(attempt.rules.durationMinutes,150);
     assert.ok(attempt.questions.every(q=>q.prepId===prep.id&&!('correct' in q)));
+    assert.equal(new Set(attempt.questions.map(question=>question.prompt.normalize('NFC').trim().replace(/\s+/g,' ').toLocaleLowerCase('pt-BR'))).size,attempt.questions.length,
+      `${prep.certification}: enunciado repetido na mesma prova`);
     for(let i=0;i<attempt.questions.length;i++)for(let j=i+1;j<attempt.questions.length;j++){
       if(attempt.questions[i].subject===attempt.questions[j].subject)
         assert.equal(questionsAreSimilar(attempt.questions[i],attempt.questions[j]),false,`${prep.certification}: questões semelhantes no grupo ${attempt.questions[i].subject}`);
@@ -109,6 +111,7 @@ test('Recertificação PQO Operações aplica 30 questões e revela o gabarito c
   assert.equal(attempt.rules.passPercent,60);
   assert.ok(attempt.questions.every(q=>!('correct' in q)&&!('explanation' in q)));
   const drawn=attempt.questions.map(q=>questions.find(x=>x.id===q.id));
+  assert.equal(drawn.filter(q=>q.difficulty==='advanced').length,15);
   const answers=Object.fromEntries(drawn.slice(0,18).map(q=>[q.id,q.correct]));
   answers[drawn[18].id]=String((Number(drawn[18].correct)+1)%4);
   assert.equal((await c('/attempts/'+attempt.id+'/save','POST',{answers})).status,200);
@@ -124,6 +127,7 @@ test('Recertificação PQO Operações aplica 30 questões e revela o gabarito c
     assert.match(q.explanation,/Referência · Guia Por Dentro da B3, p\. 11, título/);
   }
   const {data:next}=await c('/attempts','POST',{quizId});
+  assert.equal(next.questions.filter(q=>q.difficulty==='advanced').length,15);
   assert.equal(new Set([...attempt.questions,...next.questions].map(q=>q.id)).size,60);
   assert.equal((await c('/attempts','POST',{quizId})).data.id,next.id);
   await c('/attempts/'+next.id+'/finish','POST',{});
