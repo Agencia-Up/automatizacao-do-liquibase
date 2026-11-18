@@ -9,6 +9,7 @@ export function cloudAuthPage(kind,{bar,brand,field,icon,hasSession,hasRecoveryK
   const passwordRules=register||reset?'required minlength="8" maxlength="128" autocomplete="new-password"':'required autocomplete="current-password"';
   const fields=(register?field('name','Seu nome','','text','required autocomplete="name" maxlength="100"'):'')
     +(!reset?field('email','E-mail','','email','required autocomplete="username" maxlength="254"'):'')
+    +(reset&&hasSession&&!hasRecoveryKey?field('currentPassword','Senha atual','','password','required autocomplete="current-password" maxlength="128"'):'')
     +(!recover?field('password',reset?'Nova senha':'Senha','','password',passwordRules):'')
     +(reset?field('passwordConfirm','Confirme a nova senha','','password',passwordRules):'');
   const form=reset&&!hasSession&&!hasRecoveryKey
@@ -83,7 +84,7 @@ function planContents(data,tracks,selected,backToPackage,{E,icon}){
 
 export function planComparison({data,tracks,selected,prices,actions,money,icon,E,selectedOffer,backToPackage}){
   const plans=[
-    {id:'module',label:'Individual',title:'Um módulo',scope:'Simulados e materiais da trilha escolhida.'},
+    {id:'module',label:'Individual',title:'Um módulo',scope:'Um ano de acesso aos simulados e materiais da trilha escolhida.'},
     {id:'all',label:'Pacote completo',title:'Todos os módulos',scope:'Um ano de acesso aos simulados e materiais de todo o catálogo.'},
   ];
   return `<div class="pricing-comparison">
@@ -184,7 +185,7 @@ export function cloudCheckout(data,{bar,brand,link,notice,E,select,money,icon},q
         <h2 id="purchase-summary-title">Resumo do pedido</h2>
         <div class="purchase-product"><span class="purchase-product-icon">${icon('book',23)}</span><div><span>Simulou Passou</span><h3>${E(title)}</h3></div></div>
         <p>${all?`Todos os módulos · ${quizCount} simulados`:'Acesso ao módulo selecionado'}</p>
-        <ul><li>${icon('check',15)} ${all?'Um ano de acesso':'Acesso ao módulo selecionado'}</li><li>${icon('check',15)} Gabarito comentado e materiais do plano</li></ul>
+        <ul><li>${icon('check',15)} Um ano de acesso</li><li>${icon('check',15)} Gabarito comentado e materiais do plano</li></ul>
         <div class="purchase-total"><div><strong>Total</strong><small>Pagamento único</small></div><strong>${money(prices[offer])}</strong></div>
       </aside>
       <section class="purchase-panel" aria-label="Pagamento">${payment}</section>
@@ -196,7 +197,13 @@ export function cloudLegal(kind){
 }
 export function cloudAccount(data,h){
   const {heading,field,E,notice,button,link}=h,u=data.user;
-  return `${heading('Sua conta','Tudo em um só lugar.','Gerencie seus dados e confira a situação do seu acesso.')}<div class="account-grid"><section class="card"><h3>Dados pessoais</h3><form data-form="profile">${field('name','Nome',u.name,'text','required autocomplete="name"')}${field('email','E-mail',u.email,'email','disabled')}<p class="fine">O e-mail identifica sua conta da Logos IA.</p><div class="form-error" role="alert"></div><button class="btn" type="submit">Salvar alterações</button></form></section><section class="card"><h3>Seu acesso</h3>${notice(u.role==='master'?'Você tem administração do Simulou Passou.':u.allModules?'Seu acesso a todos os módulos está liberado.':u.hasAccess?'Módulos liberados: '+E(data.preparations.filter(p=>u.moduleIds?.includes(p.id)).map(p=>p.name).join(', '))+'.':'Seu painel pessoal está ativo. O acesso aos simulados ainda depende de liberação.')}<p>Suas anotações, atividades e tentativas ficam vinculadas à sua conta.</p>${u.hasAccess?'':data.checkoutEnabled?link('Ver acesso','#/checkout','compact'):'<p class="fine">Compras ainda indisponíveis.</p>'}<div class="actions">${link(u.hasAccess?'Meus simulados':'Meu painel',u.hasAccess?'#/simulados':'#/inicio','secondary compact')}${link('Alterar senha','#/recuperar','secondary compact')}${button('Sair','logout','secondary compact')}</div></section></div>`;
+  const expiry=u.accessExpiresAt?new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',dateStyle:'long',timeStyle:'short'}).format(new Date(u.accessExpiresAt)):null;
+  const status=u.role==='master'?'Você tem administração do Simulou Passou.':u.accessExpired?'Seu período de acesso terminou. Os simulados e materiais pagos estão bloqueados.':u.allModules?'Seu acesso a todos os módulos está liberado.':u.hasAccess?'Módulos liberados: '+data.preparations.filter(p=>u.moduleIds?.includes(p.id)).map(p=>p.name).join(', ')+'.':'Seu acesso aos simulados ainda depende da confirmação da compra.';
+  return `${heading('Meu perfil','Sua conta e seu acesso.','Atualize seus dados, acompanhe a validade e escolha sua senha.')}<div class="account-grid">
+    <section class="card"><h3>Dados pessoais</h3><form data-form="profile">${field('name','Nome',u.name,'text','required autocomplete="name" maxlength="100"')}${field('email','E-mail de login',u.email,'email','disabled')}<p class="fine">Use este e-mail para entrar na comunidade Simulou Passou.</p><div class="form-error" role="alert"></div><button class="btn" type="submit">Salvar alterações</button></form></section>
+    <section class="card"><h3>Seu acesso</h3>${notice(E(status))}${expiry?`<p><strong>${u.accessExpired?'Acesso encerrado em':'Acesso válido até'}</strong><br><time datetime="${E(u.accessExpiresAt)}">${E(expiry)}</time> · horário de Brasília</p><p class="fine">A compra dá direito a um ano de acesso. O conteúdo pago é bloqueado automaticamente no vencimento.</p>`:''}<p>Suas anotações e seu histórico continuam vinculados à sua conta.</p>${!u.hasAccess&&data.checkoutEnabled?link(u.accessExpired?'Renovar acesso':'Ver acesso','#/checkout','compact'):''}<div class="actions">${link(u.hasAccess?'Meus simulados':'Meu painel',u.hasAccess?'#/simulados':'#/inicio','secondary compact')}${button('Sair','logout','secondary compact')}</div></section>
+    <section class="card" id="alterar-senha"><h3>Alterar senha</h3><p>Você pode substituir a senha provisória ou trocar sua senha pessoal aqui.</p><form data-form="reset">${field('currentPassword','Senha atual','','password','required autocomplete="current-password" maxlength="128"')}${field('password','Nova senha','','password','required minlength="8" maxlength="128" autocomplete="new-password"')}${field('passwordConfirm','Confirme a nova senha','','password','required minlength="8" maxlength="128" autocomplete="new-password"')}<p class="fine">Use de 8 a 128 caracteres. Depois de salvar, entre novamente com a nova senha.</p><div class="form-error" role="alert"></div><button class="btn" type="submit">Salvar nova senha</button></form>${link('Esqueci minha senha atual','#/recuperar','secondary compact')}</section>
+  </div>`;
 }
 export function cloudAdminOverview(d,h,checkoutEnabled){
   const {stat,link,notice}=h;
