@@ -112,12 +112,23 @@ export function createCheckout({config,fetchImpl,origin,basePath,rpc,fault}){
       if(checkoutId(body.payment.checkoutSession)&&!await rpc('sp_checkout_known',{p_provider:body.payment.checkoutSession,p_mode:mode}))return {ok:true};
       const payment=await provider('/payments/'+encodeURIComponent(body.payment.id));
       if(!checkoutId(payment.checkoutSession)||!['PIX','CREDIT_CARD'].includes(payment.billingType))return {ok:true};
-      const state=paidStatus.has(payment.status)?'paid':refundStatus.has(payment.status)?'refunded':null;
+      const state=paidStatus.has(payment.status)?'paid':refundStatus.has(payment.status)?'refunded_final':null;
       const amount=Math.round(Number(payment.value)*100);
       if(state&&Number.isSafeInteger(amount))await rpc('sp_checkout_event',{p_provider:payment.checkoutSession,p_mode:mode,p_event:body.id,p_state:state,p_amount:amount});
     }
     return {ok:true};
   }
 
-  return {configured,mode,create,handleWebhook};
+  async function findRefundPayment(order){
+    if(!configured)throw fault(503,'A consulta ao Asaas está indisponível.');
+    if(!checkoutId(order.checkoutId))throw fault(409,'O pedido não tem uma cobrança válida.');
+    const payments=await provider('/payments?'+new URLSearchParams({checkoutSession:order.checkoutId,limit:'20'}));
+    const matching=(Array.isArray(payments.data)?payments.data:[]).filter(p=>checkoutId(p.id)&&p.checkoutSession===order.checkoutId&&
+      ['PIX','CREDIT_CARD'].includes(p.billingType)&&Math.round(Number(p.value)*100)===order.amount&&
+      (paidStatus.has(p.status)||['REFUND_IN_PROGRESS','REFUNDED'].includes(p.status)));
+    if(matching.length!==1)throw fault(409,'Não foi possível conferir uma única cobrança deste pedido no Asaas.');
+    const payment=matching[0];
+    return {paymentId:payment.id,billingType:payment.billingType,status:payment.status};
+  }
+  return {configured,mode,create,findRefundPayment,handleWebhook};
 }

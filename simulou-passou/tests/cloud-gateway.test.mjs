@@ -14,6 +14,9 @@ function fixture(){
     const user=k=>({id:ids[k],email:k+'@example.test',created_at:'2026-01-01T00:00:00Z',user_metadata:{name:k,role:'master'}});
     if(u.pathname==='/auth/v1/user')return key?response(user(key)):response({code:'bad_jwt'},401);
     if(u.pathname==='/auth/v1/token')return body.password==='valid-password'?response({user:user('a'),access_token:'token-a',refresh_token:'refresh-a',expires_in:3600}):response({},400);
+    if(u.pathname==='/rest/v1/rpc/sp_mail_reserve')return response(null);
+    if(u.pathname==='/auth/v1/admin/generate_link')return response({action_link:'https://db.example.test/auth/v1/verify?type=signup&token=synthetic',hashed_token:'r'.repeat(64)});
+    if(u.pathname==='/emails')return response({id:'synthetic-message'});
     if(u.pathname==='/auth/v1/signup')return response({user:user('a')});
     if(u.pathname==='/auth/v1/recover'||u.pathname==='/auth/v1/logout')return response({});
     if(u.pathname==='/rest/v1/rpc/sp_runtime_load'){
@@ -30,7 +33,7 @@ function fixture(){
     if(u.pathname==='/rest/v1/rpc/sp_module_access'){if(body.p_active)active.add(body.p_user);else active.delete(body.p_user);return response(null);}
     throw new Error('Unexpected service call '+u.pathname);
   };
-  const gateway=createCloudGateway({supabaseUrl:'https://db.example.test',serviceKey:'server-only-test-secret',publishableKey:'publishable-test',allowedOrigins:[site],fetchImpl});
+  const gateway=createCloudGateway({resendKey:'synthetic-mail-key',supabaseUrl:'https://db.example.test',serviceKey:'server-only-test-secret',publishableKey:'publishable-test',allowedOrigins:[site],fetchImpl});
   const request=async(path,method='GET',body,account='a',extra={})=>{
     const res=await gateway(new Request('https://db.example.test/functions/v1/simulou-passou-api/api'+path,{method,headers:{...(account?{cookie:'sp_access=token-'+account}:{}),origin:site,...extra},body:body===undefined?undefined:JSON.stringify(body)}));
     return {status:res.status,headers:res.headers,data:await res.json()};

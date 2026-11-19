@@ -325,7 +325,21 @@ async function render(){const token=++renderId;try{if(!data)await refresh();cons
  if(base==='desempenho'||base==='inicio'&&r.query.has('desempenho'))$('#meu-desempenho')?.focus();
  tick();workspaceTick();syncWorkspaceMenu();
  }catch(e){if(token!==renderId)return;$('#app').innerHTML=data?.user?shell(errorPage(e),'','Tentar novamente'):bar()+`<main class="public-wrap section">${errorPage(e)}</main>`;}}
+async function showPurchaseRequests(admin=false){
+ const orders=await api('/refunds'+(admin?'?admin=1':''));
+ const body=orders.length?orders.map(order=>`<article class="card" style="margin-bottom:14px"><h3>${E(order.offer==='all'?'Pacote completo':prepName(order.prepId))}</h3><p>${money(order.amount)} · ${date(order.purchasedAt)}</p>${admin&&order.buyer?`<p>${E(order.buyer)}</p>`:''}${order.refundedAt?notice('Estorno confirmado em '+date(order.refundedAt)+'. O acesso desta compra foi encerrado.'):order.requestedAt?notice('Cancelamento solicitado em '+date(order.requestedAt)+'. Aguarda conferência do pagamento.'):notice('Compra confirmada.')}<div class="actions">${order.status==='paid'&&!order.requestedAt&&!admin?`<button class="btn secondary compact" data-action="cloud-refund-confirm" data-id="${E(order.id)}">Solicitar cancelamento</button>`:''}${admin&&order.status==='paid'?`<button class="btn secondary compact" data-action="cloud-refund-payment" data-id="${E(order.id)}">Conferir cobrança no Asaas</button>`:''}</div></article>`).join(''):notice(admin?'Nenhuma solicitação de cancelamento.':'Nenhuma compra disponível para consulta. Liberações de teste ou suporte não são compras.');
+ showModal(admin?'Solicitações de cancelamento':'Minhas compras',body,button('Fechar','close-modal','secondary'));
+}
 async function action(el){const name=el.dataset.action;
+ if(name==='cloud-purchases'||name==='cloud-refund-admin'){await showPurchaseRequests(name==='cloud-refund-admin');return;}
+ if(name==='cloud-refund-confirm'){
+  showModal('Solicitar cancelamento?',notice('Sua solicitação será encaminhada à administração. O acesso vinculado a esta compra é encerrado quando o estorno for confirmado pelo meio de pagamento.'),button('Voltar','close-modal','secondary')+`<button class="btn" data-action="cloud-refund-send" data-id="${E(el.dataset.id)}">Enviar solicitação</button>`);return;
+ }
+ if(name==='cloud-refund-send'){await api('/refunds/'+encodeURIComponent(el.dataset.id),{method:'POST',body:{}});await showPurchaseRequests();toast('Solicitação registrada.');return;}
+ if(name==='cloud-refund-payment'){
+  const payment=await api('/refunds/'+encodeURIComponent(el.dataset.id)+'/payment');
+  showModal('Cobrança conferida',`<p>Abra <strong>Cobranças</strong> na conta da Logos no Asaas e localize este identificador:</p><p><code>${E(payment.paymentId)}</code></p><p>${E(payment.billingType)} · ${E(payment.status)}</p>${notice('Confira o pedido e conclua o estorno no Asaas. A confirmação do provedor encerra o acesso correspondente no Simulou Passou.')}`,button('Fechar','close-modal','secondary'));return;
+ }
  if(name==='checkout-account'){
    sessionStorage.setItem('sp-checkout-choice',route().query.toString());
    go(el.dataset.destination==='cadastro'?'/cadastro':'/entrar');

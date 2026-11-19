@@ -1,5 +1,7 @@
 import {createCheckout} from './checkout.mjs';
-import {createAccountMail,createPurchaseMail,recoveryKeyPattern} from './account-mail.mjs';
+import {createAccountMail,createPurchaseMail,createRegistrationMail,createMailAudit,recoveryKeyPattern} from './branded-mail.mjs';
+import {createPurchaseAccess} from './purchase-access.mjs';
+import {paidAccess} from './access-policy.mjs';
 import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {Readable} from 'node:stream';
 import {createApp} from '../server.mjs';
@@ -32,10 +34,17 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
   const checkout=createCheckout({config:checkoutConfig,fetchImpl,origin:allowedOrigins[0],basePath,rpc,fault});
   const recoveryPage=allowedOrigins[0]+basePath;
   const accountMail=resendKey?createAccountMail({supa,fetchImpl,baseUrl:recoveryPage,resendKey,fault}):null;
-  const purchaseMail=purchaseMailKey?createPurchaseMail({supa,fetchImpl,baseUrl:recoveryPage,resendKey:purchaseMailKey}):null;
+  const purchaseAccess=createPurchaseAccess({supa,rpc,serviceKey});
+  const purchaseMail=purchaseMailKey?createPurchaseMail({purchaseAccess,supa,rpc,serviceKey,fetchImpl,baseUrl:recoveryPage,resendKey:purchaseMailKey}):null;
+  const registrationMail=resendKey?createRegistrationMail({supa,fetchImpl,baseUrl:recoveryPage,resendKey}):null;
+  const mailAudit=purchaseMailKey?createMailAudit({rpc,fetchImpl,resendKey:purchaseMailKey}):null;
   const digest=value=>createHash('sha256').update(value).digest();
   const workerAuth=digest('Bearer '+serviceKey);
   const mailKey=value=>createHash('sha256').update(serviceKey+'\n'+value).digest('hex');
+  const reserveMail=async(email,client)=>{
+    try{await rpc('sp_mail_reserve',{p_recipient:mailKey(email),p_client:client?mailKey(client):null});}
+    catch(error){throw fault(error.status===429?429:503,error.status===429?'Aguarde alguns minutos antes de pedir outro link.':'O envio de e-mail está temporariamente indisponível. Tente novamente em alguns minutos.');}
+  };
   return async function gateway(req){
     const headers=new Headers({'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});
     const origin=req.headers.get('origin');
@@ -48,6 +57,12 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
     let user=null;
     try{
       const url=new URL(req.url),path=url.pathname.replace(/^.*\/simulou-passou-api(?=\/)/,'').replace(/^\/simulou-passou(?=\/)/,'');
+      if(path==='/api/internal/purchase-mail/audit'&&req.method==='GET'){
+        if(!timingSafeEqual(digest(req.headers.get('authorization')||''),workerAuth))return finish({error:'Operação não autorizada.'},403);
+        const id=url.searchParams.get('order');
+        if(!/^[0-9a-f-]{36}$/.test(id||''))return finish({error:'Pedido inválido.'},400);
+        return finish(mailAudit?await mailAudit(id):{error:'mail_unavailable'});
+      }
       if(path==='/api/internal/purchase-mail'&&req.method==='POST'){
         if(!timingSafeEqual(digest(req.headers.get('authorization')||''),workerAuth))return finish({error:'Operação não autorizada.'},403);
         if(!purchaseMail)return finish({error:'Envio indisponível.'},503);
@@ -79,19 +94,26 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
       const sample=publicDemo({path,method:req.method,body,cookie:jar.sp_sample,secret:serviceKey,now:now(),
         issueCookie:(value,age)=>headers.append('Set-Cookie',`sp_sample=${value}; Path=${cookiePath}/sample; HttpOnly; Secure; SameSite=Strict; Max-Age=${age}`)});
       if(sample)return finish(sample.data,sample.status);
-      if(token){try{user=await supa('/auth/v1/user',{token,key:publishableKey});}catch(e){if(e.status!==401&&e.status!==403)throw e;}}
-      if(!user&&jar.sp_refresh){
+      // Public entry flows must not depend on a stale session from another tab.
+      const needsSession=!['/api/auth/register','/api/auth/login','/api/auth/recover'].includes(path)
+        &&!(path==='/api/auth/reset'&&body.recoveryKey!=null);
+      if(needsSession&&token){try{user=await supa('/auth/v1/user',{token,key:publishableKey});}catch(e){if(e.status!==401&&e.status!==403)throw e;}}
+      if(needsSession&&!user&&jar.sp_refresh){
         try{const session=await supa('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:{refresh_token:jar.sp_refresh},key:publishableKey});token=session.access_token;user=session.user;setSession(session);}catch(e){if(e.status>=500)throw e;clear();}
       }
       if(user&&(user.is_anonymous||!user.email)){user=null;clear();}
-      if(path==='/api/health'&&req.method==='GET'){await rpc('sp_runtime_load',{p_actor:null});return finish({ok:true,module:'simulou-passou',build:'cloud-11',payments:checkout.configured?'configured':'disabled',guestCheckout:guestCheckoutEnabled&&checkout.configured,recoveryEmail:accountMail?'branded':'standard'});}
+      if(path==='/api/health'&&req.method==='GET'){await rpc('sp_runtime_load',{p_actor:null});return finish({ok:true,module:'simulou-passou',build:'access-refunds-v1',payments:checkout.configured?'configured':'disabled',guestCheckout:guestCheckoutEnabled&&checkout.configured,recoveryEmail:accountMail?'branded':'disabled',purchaseEmails:purchaseMail?'single-confirmation-and-access':'disabled'});}
       if(path==='/api/auth/demo'||path.includes('/demo-event'))return finish({error:'Operação de demonstração indisponível.'},404);
       if(path==='/api/auth/register'&&req.method==='POST'){
         const name=String(body.name||'').trim().slice(0,100),email=String(body.email||'').trim().toLowerCase(),password=String(body.password||'');
         if(!name||!/^\S+@\S+\.\S+$/.test(email)||password.length<8||password.length>128)throw fault(400,'Informe nome, e-mail válido e senha com 8 a 128 caracteres.');
-        const result=await supa('/auth/v1/signup?redirect_to='+encodeURIComponent([...origins][0]+basePath+'/'),{method:'POST',body:{email,password,data:{name}},key:publishableKey});
-        if(result.access_token)setSession(result);
-        return finish({confirmationRequired:!result.access_token,message:result.access_token?'Conta criada.':'Confira seu e-mail para confirmar o cadastro e depois entre na sua conta.'});
+        if(!registrationMail)throw fault(503,'O envio de e-mail está temporariamente indisponível.');
+        const client=(req.headers.get('cf-connecting-ip')||req.headers.get('x-forwarded-for')?.split(',')[0]||'').trim().slice(0,80);
+        await reserveMail(email,client);
+        try{await registrationMail({email,password,name});}catch(error){
+          if(![400,422].includes(error.status))throw fault(503,'Não conseguimos enviar a confirmação agora. Tente novamente em alguns minutos.');
+        }
+        return finish({confirmationRequired:true,message:'Confira seu e-mail para confirmar o cadastro. Se já tem uma conta, entre ou recupere sua senha.'});
       }
       if(path==='/api/auth/login'&&req.method==='POST'){
         try{const session=await supa('/auth/v1/token?grant_type=password',{method:'POST',body:{email:String(body.email||'').trim(),password:String(body.password||'')},key:publishableKey});setSession(session);return finish({ok:true});}
@@ -104,17 +126,18 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
       if(path==='/api/auth/recover'&&req.method==='POST'){
         const email=String(body.email||'').trim().toLowerCase();
         if(email.length>254||!/^\S+@\S+\.\S+$/.test(email))throw fault(400,'Informe um e-mail válido.');
+        const client=(req.headers.get('cf-connecting-ip')||req.headers.get('x-forwarded-for')?.split(',')[0]||'').trim().slice(0,80);
+        // Infrastructure failures must not be swallowed as an unknown account.
+        await reserveMail(email,client);
         try{
           if(accountMail){
-            const client=(req.headers.get('cf-connecting-ip')||req.headers.get('x-forwarded-for')?.split(',')[0]||'').trim().slice(0,80);
-            await rpc('sp_mail_reserve',{p_recipient:mailKey(email),p_client:client?mailKey(client):null});
             await accountMail({email});
           }else{
             await supa('/auth/v1/recover?redirect_to='+encodeURIComponent(recoveryPage+'/'),{method:'POST',body:{email},key:publishableKey});
           }
         }catch(e){
           if(e.status===429)throw fault(429,'Aguarde alguns minutos antes de pedir outro link.');
-          if(![400,403,404,422].includes(e.status))throw fault(503,'Não conseguimos enviar o link agora. Tente novamente em alguns minutos.');
+          if(e.code!=='user_not_found')throw fault(503,'Não conseguimos enviar o link agora. Tente novamente em alguns minutos.');
         }
         return finish({message:'Confira sua caixa de entrada e o spam. Se houver uma conta para esse e-mail, o link de recuperação será enviado.'});
       }
@@ -149,8 +172,17 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
               throw fault(401,'O link é inválido ou expirou. Solicite um novo link.');
             }
           }
-        }else if(!user){
-          throw fault(401,'Abra o link de recuperação recebido por e-mail.');
+        }else{
+          if(!user)throw fault(401,'Abra o link de recuperação recebido por e-mail.');
+          if(typeof body.currentPassword!=='string'||body.currentPassword.length<1)throw fault(400,'Informe sua senha atual.');
+          try{
+            const verified=await supa('/auth/v1/token?grant_type=password',{method:'POST',key:publishableKey,body:{email:user.email,password:body.currentPassword}});
+            if(verified.user?.id!==user.id||!verified.access_token)throw fault(401,'A senha atual está incorreta.');
+            resetToken=verified.access_token;
+          }catch(error){
+            if(error.status>=500||error.status===429)throw error;
+            throw fault(401,'A senha atual está incorreta.');
+          }
         }
         try{
           await supa('/auth/v1/user',{method:'PUT',token:resetToken,key:publishableKey,body:{password}});
@@ -201,6 +233,25 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
       if(path==='/api/feedback'&&req.method==='GET'){
         return finish(await rpc('sp_feedback_inbox',{p_actor:user.id}));
       }
+      if(path==='/api/refunds'&&req.method==='GET'){
+        return finish(await rpc('sp_refund_orders',{p_actor:user.id,p_mode:checkout.mode,p_admin:url.searchParams.get('admin')==='1',p_order:null}));
+      }
+      const refundPath=path.match(/^\/api\/refunds\/([0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12})(\/payment)?$/i);
+      if(refundPath){
+        const [,orderId,payment]=refundPath;
+        if(!payment&&req.method==='POST'){
+          try{await rpc('sp_refund_request',{p_actor:user.id,p_order:orderId,p_mode:checkout.mode});}
+          catch(error){if(error.status===404)throw fault(404,'Compra não encontrada.');if(error.status===409)throw fault(409,'Esta compra não está disponível para solicitar estorno.');throw error;}
+          return finish({ok:true});
+        }
+        if(payment&&req.method==='GET'){
+          const orders=await rpc('sp_refund_orders',{p_actor:user.id,p_mode:checkout.mode,p_admin:true,p_order:orderId});
+          if(!orders[0])throw fault(404,'Solicitação de estorno não encontrada.');
+          if(orders[0].status!=='paid')throw fault(409,'A compra já não está confirmada para um novo estorno.');
+          return finish(await checkout.findRefundPayment(orders[0]));
+        }
+        throw fault(405,'Método não permitido.');
+      }
       if(openingOrder)return finish(await checkout.create(user,body.prepId,body.offer,null,checkoutDetails));
       if(path.startsWith('/api/orders/')||path.includes('/payment'))throw fault(404,'Operação não encontrada.');
       if(/^\/api\/admin\/access\/[^/]+$/.test(path)&&req.method==='PATCH'){
@@ -211,15 +262,8 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
         const context=await rpc('sp_runtime_load',{p_actor:user?.id||null});
         const allUsers=new Set([...(context.active_users||[]),...(context.administrator_ids||[])]);
         if(user&&(context.admin||context.entitled))allUsers.add(user.id);
-        const paidModules=new Map();
-        for(const order of context.orders||[]){
-          if(order.status!=='paid'||!order.prepId||order.providerMode!==checkout.mode)continue;
-          if(order.accessExpiresAt&&Date.parse(order.accessExpiresAt)<=now())continue;
-          if(order.offer==='all'||order.offer==='legacy'||order.offer===undefined){allUsers.add(order.userId);continue;}
-          if(order.offer!=='module')continue;
-          if(!paidModules.has(order.userId))paidModules.set(order.userId,new Set());
-          paidModules.get(order.userId).add(order.prepId);
-        }
+        const purchased=paidAccess(context.orders,checkout.mode,now()),paidModules=purchased.modules;
+        for(const id of purchased.allUsers)allUsers.add(id);
         const db=seed();for(const key of catalogKeys)db[key]=copy(context.catalog.body[key]||[]);
         db.users=[];db.orders=context.orders||[];db.sessions=[];db.recoveries=[];db.paymentEvents=[];for(const key of personal)db[key]=[];
         const records=context.members||[];
@@ -246,7 +290,7 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
           catch(e){if(e.code==='40001'&&retry<2)continue;throw e.code==='40001'?fault(409,'Outra aba atualizou seus dados. Tente novamente.'):e;}
         }
         let result;try{result=JSON.parse(output.body);}catch{throw fault(500,'Resposta inválida.');}
-        if(path==='/api/bootstrap'&&output.status===200){result.local=false;result.checkoutEnabled=checkout.configured&&context.checkout_enabled===true;result.guestCheckoutEnabled=result.checkoutEnabled&&guestCheckoutEnabled;result.production=true;if(result.user){result.user.allModules=allUsers.has(user.id);result.user.moduleIds=[...(paidModules.get(user.id)||[])];}}
+        if(path==='/api/bootstrap'&&output.status===200){result.local=false;result.checkoutEnabled=checkout.configured&&context.checkout_enabled===true;result.guestCheckoutEnabled=result.checkoutEnabled&&guestCheckoutEnabled;result.production=true;if(result.user){result.user.allModules=allUsers.has(user.id);result.user.moduleIds=[...(paidModules.get(user.id)||[])];const expiry=purchased.expirations.get(user.id);result.user.accessExpiresAt=expiry?new Date(expiry).toISOString():null;result.user.accessExpired=!result.user.hasAccess&&purchased.expiredUsers.has(user.id);}}
         if(path==='/api/admin'&&output.status===200){for(const member of result.users)member.manualAccess=(context.active_users||[]).includes(member.id);}
         return finish(result,output.status);
       }
