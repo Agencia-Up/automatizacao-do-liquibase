@@ -5,7 +5,7 @@ import {PGlite} from '@electric-sql/pglite';
 import {createProductAuth} from '../cloud/product-auth.mjs';
 import {createCloudGateway} from '../cloud/gateway.mjs';
 import {signAuthLink,openAuthLink,sealProductCookie,openProductCookie} from '../cloud/auth-links.mjs';
-import {createAccountMail,createRegistrationMail,createPurchaseMail,createMailAudit} from '../cloud/branded-mail.mjs';
+import {createAccountMail,createRegistrationMail,createPurchaseMail,createMailAudit,createAccountMailStatus} from '../cloud/branded-mail.mjs';
 import {sealPurchaseMessage} from '../cloud/purchase-snapshot.mjs';
 const site='https://logosiabrasil.com',baseUrl=site+'/simulou-passou',serviceKey='synthetic-test-service';
 const legacyId='11111111-1111-4111-8111-111111111111',productId='22222222-2222-4222-8222-222222222222';
@@ -13,6 +13,24 @@ const email='student@example.test',alias='sp-'+productId+'@simulou-passou.invali
 const fault=(status,message)=>Object.assign(new Error(message),{status});
 const response=(body,status=200)=>new Response(JSON.stringify(body),{status});
 const options={baseUrl,serviceKey,purpose:'recovery',token:rawToken};
+
+test('links e cookies funcionam sem Buffer global, como no worker de produção',()=>{
+  const previous=globalThis.Buffer;
+  try{
+    globalThis.Buffer=undefined;
+    const link=signAuthLink(options);assert.equal(openAuthLink(link,options),rawToken);
+    const cookieOptions={name:'sp_product_access',path:'/simulou-passou/api',serviceKey};
+    assert.equal(openProductCookie(sealProductCookie('synthetic-session',cookieOptions),cookieOptions),'synthetic-session');
+  }finally{globalThis.Buffer=previous;}
+});
+
+test('diagnóstico de envio exige credencial de serviço e consulta somente metadados da mensagem correta',async()=>{
+  const gateway=createCloudGateway({supabaseUrl:'https://db.example.test',serviceKey,publishableKey:'synthetic-public',allowedOrigins:[site],resendKey:'synthetic-mail',fetchImpl:()=>{throw Error('Unexpected request');}});
+  const result=await gateway(new Request(baseUrl+'/api/internal/account-mail',{method:'POST',headers:{Origin:site},body:JSON.stringify({action:'recover',email})}));assert.equal(result.status,403);
+  const status=createAccountMailStatus({resendKey:'synthetic-mail',fetchImpl:async()=>response({id:'message-one',to:[email],from:'Simulou Passou <simuloupassou@logosiabrasil.com>',subject:'Simulou Passou · Defina sua senha',last_event:'delivered',html:'must-not-leak'})});
+  const delivered=await status({id:'message-one',email});assert.equal(delivered.status,'delivered');assert.equal(delivered.recipientMatches,true);assert.equal(delivered.html,undefined);
+  assert.equal((await status({id:'message-one',email:'other@example.test'})).error,'product_message_mismatch');
+});
 
 test('links são exclusivos do produto, finalidade e domínio; rejeitam adulteração, expiração e chaves antigas',()=>{
   const link=signAuthLink({...options,now:1000000});

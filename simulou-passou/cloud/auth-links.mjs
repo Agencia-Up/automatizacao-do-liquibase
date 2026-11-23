@@ -1,4 +1,5 @@
 import {createHmac,timingSafeEqual,createHash,createCipheriv,createDecipheriv,randomBytes} from 'node:crypto';
+import {Buffer} from 'node:buffer';
 
 const audience='simulou-passou';
 const rawToken=/^[A-Za-z0-9_-]{32,160}$/;

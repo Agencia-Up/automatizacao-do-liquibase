@@ -1,5 +1,5 @@
 import {createCheckout} from './checkout.mjs';
-import {createAccountMail,createPurchaseMail,createRegistrationMail,createMailAudit,recoveryKeyPattern} from './branded-mail.mjs';
+import {createAccountMail,createPurchaseMail,createRegistrationMail,createMailAudit,createAccountMailStatus,recoveryKeyPattern} from './branded-mail.mjs';
 import {createPurchaseAccess} from './purchase-access.mjs';
 import {openAuthLink,sealProductCookie,openProductCookie} from './auth-links.mjs';
 import {createProductAuth} from './product-auth.mjs';
@@ -33,7 +33,7 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
     return data;
   }
   const rpc=(name,body)=>supa('/rest/v1/rpc/'+name,{method:'POST',body});
-  const productAuth=accountIsolation?createProductAuth({supa,rpc,publishableKey,fault}):null;
+  const productAuth=accountIsolation?createProductAuth({supa,rpc,publishableKey,fault,serviceKey,baseUrl:allowedOrigins[0]+basePath}):null;
   const sessionNames=accountIsolation?['sp_product_access','sp_product_refresh','sp_product_recovery']:['sp_access','sp_refresh','sp_recovery'];
   const checkout=createCheckout({config:checkoutConfig,fetchImpl,origin:allowedOrigins[0],basePath,rpc,fault});
   const recoveryPage=allowedOrigins[0]+basePath;
@@ -42,6 +42,7 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
   const purchaseMail=purchaseMailKey?createPurchaseMail({purchaseAccess,supa,rpc,serviceKey,fetchImpl,baseUrl:recoveryPage,resendKey:purchaseMailKey,now}):null;
   const registrationMail=resendKey?createRegistrationMail({supa,fetchImpl,baseUrl:recoveryPage,resendKey,serviceKey,now}):null;
   const mailAudit=purchaseMailKey?createMailAudit({rpc,fetchImpl,resendKey:purchaseMailKey}):null;
+  const accountMailStatus=resendKey?createAccountMailStatus({fetchImpl,resendKey}):null;
   const digest=value=>createHash('sha256').update(value).digest();
   const workerAuth=digest('Bearer '+serviceKey);
   const mailKey=value=>createHash('sha256').update(serviceKey+'\n'+value).digest('hex');
@@ -62,6 +63,19 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
     let user=null;
     try{
       const url=new URL(req.url),path=url.pathname.replace(/^.*\/simulou-passou-api(?=\/)/,'').replace(/^\/simulou-passou(?=\/)/,'');
+      if(path==='/api/internal/account-mail'&&req.method==='POST'){
+        if(!timingSafeEqual(digest(req.headers.get('authorization')||''),workerAuth))return finish({error:'Operação não autorizada.'},403);
+        if(!accountMail||!productAuth)throw fault(503,'Envio do produto indisponível.');
+        const raw=await req.text();if(raw.length>1024)throw fault(413,'Conteúdo muito grande.');
+        let input;try{input=JSON.parse(raw);}catch{throw fault(400,'Solicitação inválida.');}
+        const email=String(input.email||'').trim().toLowerCase();
+        if(email.length>254||!/^\S+@\S+\.\S+$/.test(email))throw fault(400,'Informe um e-mail válido.');
+        if(input.action==='status')return finish(await accountMailStatus({id:input.messageId,email}));
+        if(input.action!=='recover')throw fault(400,'Operação inválida.');
+        const account=await productAuth.recovery(email);if(!account)throw fault(404,'Conta do simulador não encontrada.');
+        try{const id=await accountMail({email,authEmail:account.authEmail});return finish({accepted:true,messageId:id,product:'simulou-passou'});}
+        catch(error){throw fault(503,'O envio do produto falhou.',error.mailError||error.code||'account_mail_failed');}
+      }
       if(path==='/api/internal/product-auth/probe'&&req.method==='POST'){
         if(!timingSafeEqual(digest(req.headers.get('authorization')||''),workerAuth))return finish({error:'Operação não autorizada.'},403);
         if(!productAuth)return finish({error:'Isolamento indisponível.'},503);
@@ -156,7 +170,7 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
           if(!productAuth||account)await accountMail({email,authEmail:account?.authEmail});
         }catch(e){
           if(e.status===429)throw fault(429,'Aguarde alguns minutos antes de pedir outro link.');
-          if(e.code!=='user_not_found')throw fault(503,'Não conseguimos enviar o link agora. Tente novamente em alguns minutos.');
+          if(e.code!=='user_not_found')throw fault(503,'Não conseguimos enviar o link agora. Tente novamente em alguns minutos.',e.mailError||e.code||'account_mail_failed');
         }
         return finish({message:'Confira sua caixa de entrada e o spam. Se houver uma conta para esse e-mail, o link de recuperação será enviado.'});
       }

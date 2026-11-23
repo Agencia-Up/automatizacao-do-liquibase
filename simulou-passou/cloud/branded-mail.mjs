@@ -66,7 +66,7 @@ export function createAccountMail({supa,fetchImpl,baseUrl,resendKey,fault,servic
     const generated=await supa('/auth/v1/admin/generate_link',{method:'POST',body:{type:'recovery',email:authEmail,redirect_to:baseUrl+'/'}});
     let key;
     try{key=signAuthLink({token:generated.hashed_token||generated.properties?.hashed_token,purpose:'recovery',baseUrl,serviceKey,now:now()});}
-    catch{throw fault(503,'O link de recuperação não pôde ser gerado.');}
+    catch{throw fault(503,'O link de recuperação não pôde ser gerado.','auth_link_encoding_failed');}
     return send({email,type:access?'account-access':'password-reset',subject:'Simulou Passou · Defina sua senha',
       title:access?'Seu acesso está pronto':'Redefina sua senha',greeting:name?'Olá, '+name+'.':'Olá!',
       paragraphs:['Use o botão abaixo para escolher uma senha pessoal para sua conta do Simulou Passou.','Esta alteração vale somente para o Simulou Passou.','O link é pessoal, de uso único e tem validade limitada. Se você não fez esta solicitação, ignore este e-mail.'],
@@ -148,5 +148,19 @@ export function createMailAudit({rpc,fetchImpl=fetch,resendKey}){
     }
     return {emails:matched.map(e=>({id:e.id,to:e.to,subject:e.subject,createdAt:e.created_at,status:e.last_event})),
       confirmationId:order.confirmationId,accessId:order.accessId,messageId:order.messageId};
+  };
+}
+
+// Operator-only metadata: no message HTML, recovery tokens or credentials leave
+// the backend. A recipient and product mismatch must not be reported as delivery.
+export function createAccountMailStatus({fetchImpl=fetch,resendKey}){
+  return async ({id,email})=>{
+    if(!/^[A-Za-z0-9_-]{1,100}$/.test(id||''))return {error:'invalid_message_id'};
+    const response=await fetchImpl('https://api.resend.com/emails/'+encodeURIComponent(id),{headers:{Authorization:'Bearer '+resendKey},signal:AbortSignal.timeout(10000)});
+    if(!response.ok)return {error:'resend_read_'+response.status};
+    const message=await response.json();
+    if(message.id!==id||message.to?.length!==1||normalize(message.to[0])!==normalize(email)
+      ||message.from!==from||!message.subject?.includes('Simulou Passou'))return {error:'product_message_mismatch'};
+    return {accepted:true,status:message.last_event||'unknown',product:'simulou-passou',recipientMatches:true,createdAt:message.created_at};
   };
 }

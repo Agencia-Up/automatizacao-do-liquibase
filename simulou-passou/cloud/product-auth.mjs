@@ -1,8 +1,10 @@
 import {randomBytes} from 'node:crypto';
+import {createAccountMail} from './branded-mail.mjs';
+import {sealProductCookie,openProductCookie} from './auth-links.mjs';
 
 // Supabase still owns password hashing and sessions. The private mapping keeps
 // a product Auth identity separate from the student's existing Logos account.
-export function createProductAuth({supa,rpc,publishableKey,fault}){
+export function createProductAuth({supa,rpc,publishableKey,fault,serviceKey,baseUrl}){
   const identity=(email=null,authId=null,create=false)=>rpc('sp_product_identity',{p_email:email,p_auth_user:authId,p_create:create});
   const ensure=async(account,{password='Sp9!'+randomBytes(32).toString('base64url'),confirmed=true}={})=>{
     if(account.exists)return account;
@@ -51,10 +53,20 @@ export function createProductAuth({supa,rpc,publishableKey,fault}){
   const probe=async()=>{
     const recipient='probe+'+randomBytes(12).toString('hex')+'@simulou-passou.example';
     const first='Sp9!'+randomBytes(32).toString('base64url'),second='Sp9!'+randomBytes(32).toString('base64url');
-    const checks={signup:false,login:false,recovery:false,newPassword:false,oldPasswordRejected:false,cleaned:false,customerEmails:0};
+    const checks={signup:false,login:false,recovery:false,newPassword:false,oldPasswordRejected:false,mailTemplate:false,cookieEncoding:false,cleaned:false,customerEmails:0};
     let account;
     try{
       account=await registration(recipient,'Verificação técnica',first);
+      const cookieOptions={name:'sp_product_access',path:'/simulou-passou/api',serviceKey};
+      checks.cookieEncoding=openProductCookie(sealProductCookie('diagnostic-session',cookieOptions),cookieOptions)==='diagnostic-session';
+      const captureMail=createAccountMail({supa,baseUrl,serviceKey,resendKey:'diagnostic-no-send',fault,
+        fetchImpl:async(url,request)=>{
+          const message=JSON.parse(request.body);
+          checks.mailTemplate=url==='https://api.resend.com/emails'&&message.to?.[0]===recipient
+            &&message.from==='Simulou Passou <simuloupassou@logosiabrasil.com>'&&message.html.includes('/#/redefinir?chave=sp1.');
+          return new Response(JSON.stringify({id:'diagnostic-capture'}),{status:200});
+        }});
+      await captureMail({email:recipient,authEmail:account.authEmail});
       const generated=await supa('/auth/v1/admin/generate_link',{method:'POST',body:{type:'signup',email:account.authEmail,password:first}});
       const confirmed=await supa('/auth/v1/verify',{method:'POST',key:publishableKey,body:{type:'signup',token_hash:generated.hashed_token||generated.properties?.hashed_token}});
       checks.signup=!!await resolve(confirmed.user);
@@ -75,7 +87,7 @@ export function createProductAuth({supa,rpc,publishableKey,fault}){
         try{await supa('/auth/v1/admin/users/'+account.authUserId,{method:'DELETE'});checks.cleaned=true;}catch{checks.error='probe_cleanup_failed';}
       }
     }
-    return {ok:checks.signup&&checks.login&&checks.recovery&&checks.newPassword&&checks.oldPasswordRejected&&checks.cleaned,...checks};
+    return {ok:checks.signup&&checks.login&&checks.recovery&&checks.newPassword&&checks.oldPasswordRejected&&checks.mailTemplate&&checks.cookieEncoding&&checks.cleaned,...checks};
   };
   return {resolve,login,recovery,registration,probe};
 }
