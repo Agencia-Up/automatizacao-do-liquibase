@@ -8,8 +8,8 @@ export function createPurchaseAccess({supa,rpc,serviceKey}){
       if(!account.provisional)throw new Error('Another purchase is provisioning this account');
       try{
         await supa('/auth/v1/admin/users',{method:'POST',body:{
-          id:account.userId,email:account.email,password:temporary(account.userId),email_confirm:true,
-          user_metadata:{name:account.name},
+          id:account.userId,email:account.authEmail||account.email,password:temporary(account.userId),email_confirm:true,
+          user_metadata:{name:account.name},app_metadata:{product_origin:'simulou-passou'},
         }});
       }catch(error){
         if(![400,422].includes(error.status))throw error;

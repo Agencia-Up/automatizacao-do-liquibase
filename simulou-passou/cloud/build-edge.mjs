@@ -7,7 +7,7 @@ const files=[{name:'index.ts',content:readFileSync(resolve(root,'cloud/edge-inde
   {name:'checkout-image.mjs',content:'export default '+JSON.stringify(productImage)+';\n'},
   {name:'gateway.mjs',content:readFileSync(resolve(root,'cloud/gateway.mjs'),'utf8').replace("'../server.mjs'","'./runtime/server.mjs'").replace("'../seed.mjs'","'./runtime/seed.mjs'").replace("'../sample-quiz.mjs'","'./runtime/sample-quiz.mjs'")},
   {name:'checkout.mjs',content:readFileSync(resolve(root,'cloud/checkout.mjs'),'utf8')},
-  ...['branded-mail.mjs','purchase-access.mjs','purchase-snapshot.mjs','access-policy.mjs'].map(file=>({name:file,content:readFileSync(resolve(root,'cloud/'+file),'utf8')})),
+  ...['product-auth.mjs','auth-links.mjs','branded-mail.mjs','purchase-access.mjs','purchase-snapshot.mjs','access-policy.mjs'].map(file=>({name:file,content:readFileSync(resolve(root,'cloud/'+file),'utf8')})),
   ...['server.mjs','seed.mjs','workspace.mjs','sample-quiz.mjs','question-quality.mjs'].map(file=>({name:'runtime/'+file,content:readFileSync(resolve(root,file),'utf8')}))];
 mkdirSync(resolve(root,'dist'),{recursive:true});
 writeFileSync(resolve(root,'dist/edge-files.json'),JSON.stringify(files));

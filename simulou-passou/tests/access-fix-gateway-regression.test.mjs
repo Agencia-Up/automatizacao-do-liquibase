@@ -33,7 +33,7 @@ function fixture({now=()=>Date.now()}={}){
     if(u.pathname==='/rest/v1/rpc/sp_module_access'){if(body.p_active)active.add(body.p_user);else active.delete(body.p_user);return response(null);}
     throw new Error('Unexpected service call '+u.pathname);
   };
-  const gateway=createCloudGateway({now,resendKey:'synthetic-mail-key',supabaseUrl:'https://db.example.test',serviceKey:'server-only-test-secret',publishableKey:'publishable-test',allowedOrigins:[site],fetchImpl});
+  const gateway=createCloudGateway({accountIsolation:false,now,resendKey:'synthetic-mail-key',supabaseUrl:'https://db.example.test',serviceKey:'server-only-test-secret',publishableKey:'publishable-test',allowedOrigins:[site],fetchImpl});
   const request=async(path,method='GET',body,account='a',extra={})=>{
     const res=await gateway(new Request('https://db.example.test/functions/v1/simulou-passou-api/api'+path,{method,headers:{...(account?{cookie:'sp_access=token-'+account}:{}),origin:site,...extra},body:body===undefined?undefined:JSON.stringify(body)}));
     return {status:res.status,headers:res.headers,data:await res.json()};

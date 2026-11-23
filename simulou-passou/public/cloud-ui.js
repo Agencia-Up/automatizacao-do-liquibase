@@ -1,6 +1,7 @@
 export const isMarketPrep=id=>!['pqo-risco','pqo-liquidacao','pqo-custodia'].includes(id);
 
 export function cloudAuthPage(kind,{bar,brand,field,icon,hasSession,hasRecoveryKey}){
+  if(kind==='confirmar')return `${bar()}<main id="main" class="auth-page auth-recovery"><aside class="auth-story">${brand()}<div><div class="eyebrow" style="color:#cfb17b">Simulou Passou</div><h1>Seu espaço de simulação.</h1><p>Confirme seu e-mail para acessar sua conta do Simulou Passou.</p></div><p class="small">Simulou Passou</p></aside><section class="auth-panel"><div class="auth-card"><h1>Confirme seu e-mail</h1><p>Use o botão abaixo para concluir o cadastro no Simulou Passou. Isso não libera módulos pagos.</p><form data-form="confirm"><div class="form-error" role="alert"></div><button class="btn full" type="submit">Confirmar meu e-mail ${icon('arrow',15)}</button></form><div class="auth-links"><a href="#/cadastro">Solicitar novo cadastro</a><a href="#/entrar">Voltar ao login</a></div></div></section></main>`;
   const register=kind==='cadastro',recover=kind==='recuperar',reset=kind==='redefinir';
   const recovering=recover||reset;
   const title=register?'Crie sua conta':recover?'Recupere sua senha':reset?'Defina uma nova senha':'Entre na sua conta';
@@ -21,7 +22,7 @@ export function cloudAuthPage(kind,{bar,brand,field,icon,hasSession,hasRecoveryK
       <div><div class="eyebrow" style="color:#cfb17b">Simulou Passou</div>
       <h1>${recovering?'Volte aos seus simulados.':'Pratique no seu ritmo.'}</h1>
       <p>${recovering?'Recupere seu acesso e retome sua prática de onde parou.':'Faça simulados por certificação, revise o gabarito e retome de onde parou.'}</p></div>
-      <p class="small">Simulou Passou · Logos IA</p>
+      <p class="small">Simulou Passou</p>
     </aside>
     <section class="auth-panel"><div class="auth-card">
       <a class="auth-back" href="#/">${icon('left',15)} Página inicial</a>

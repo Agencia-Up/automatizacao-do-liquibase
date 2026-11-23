@@ -1,17 +1,18 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createCloudGateway} from '../cloud/gateway.mjs';
+import {signAuthLink} from '../cloud/auth-links.mjs';
 import {cloudAuthPage,cloudAccount} from '../public/cloud-ui.js';
-const site='https://logosiabrasil.com',uid='11111111-1111-4111-8111-111111111111',key='r'.repeat(64);
+const site='https://logosiabrasil.com',uid='11111111-1111-4111-8111-111111111111',rawKey='r'.repeat(64),key=signAuthLink({token:rawKey,purpose:'recovery',baseUrl:site+'/simulou-passou',serviceKey:'synthetic-service'});
 function fixture(options={}){
  const calls=[];let verified=0,updated=0,sent=0;
  const response=(v,status=200)=>new Response(JSON.stringify(v),{status});
  const user={id:uid,email:'student@example.test',email_confirmed_at:'2026-01-01',user_metadata:{name:'Aluno'}};
- const gateway=createCloudGateway({supabaseUrl:'https://db.example.test',serviceKey:'synthetic-service',publishableKey:'synthetic-public',allowedOrigins:[site],resendKey:'synthetic-mail',
+ const gateway=createCloudGateway({accountIsolation:false,supabaseUrl:'https://db.example.test',serviceKey:'synthetic-service',publishableKey:'synthetic-public',allowedOrigins:[site],resendKey:'synthetic-mail',
   fetchImpl:async(url,request)=>{
    const path=new URL(url).pathname,body=request.body?JSON.parse(request.body):{};calls.push({path,body,method:request.method});
    if(path==='/rest/v1/rpc/sp_mail_reserve')return options.reserveFailure?response({code:'PGRST202'},404):response(null);
-   if(path==='/auth/v1/admin/generate_link')return options.unknown?response({code:'user_not_found'},404):response({hashed_token:key});
+   if(path==='/auth/v1/admin/generate_link')return options.unknown?response({code:'user_not_found'},404):response({hashed_token:rawKey});
    if(path==='/emails'){sent++;return options.mailFailure?response({message:'Rejected'},400):response({id:'mail-accepted'});}
    if(path==='/auth/v1/user'){
     if(request.method==='PUT'){updated++;return options.weak?response({code:'weak_password'},422):response(user);}

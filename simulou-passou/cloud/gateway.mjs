@@ -1,6 +1,8 @@
 import {createCheckout} from './checkout.mjs';
 import {createAccountMail,createPurchaseMail,createRegistrationMail,createMailAudit,recoveryKeyPattern} from './branded-mail.mjs';
 import {createPurchaseAccess} from './purchase-access.mjs';
+import {openAuthLink,sealProductCookie,openProductCookie} from './auth-links.mjs';
+import {createProductAuth} from './product-auth.mjs';
 import {paidAccess} from './access-policy.mjs';
 import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {Readable} from 'node:stream';
@@ -21,7 +23,7 @@ class Capture {
   writeHead(status,headers={}){this.status=status;for(const [k,v] of Object.entries(headers))this.setHeader(k,v);this.headersSent=true;}
   end(value=''){this.body=String(value);}
 }
-export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowedOrigins,basePath='/simulou-passou',fetchImpl=fetch,now=()=>Date.now(),checkoutConfig,resendKey,purchaseMailKey,guestCheckoutEnabled=false}){
+export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowedOrigins,basePath='/simulou-passou',fetchImpl=fetch,now=()=>Date.now(),checkoutConfig,resendKey,purchaseMailKey,guestCheckoutEnabled=false,accountIsolation=true}){
   if(!supabaseUrl||!serviceKey||!publishableKey||!allowedOrigins?.length)throw new Error('Missing server configuration');
   const origins=new Set(allowedOrigins),cookiePath=basePath+'/api';
   async function supa(path,{method='GET',body,token,key=serviceKey}={}){
@@ -31,12 +33,14 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
     return data;
   }
   const rpc=(name,body)=>supa('/rest/v1/rpc/'+name,{method:'POST',body});
+  const productAuth=accountIsolation?createProductAuth({supa,rpc,publishableKey,fault}):null;
+  const sessionNames=accountIsolation?['sp_product_access','sp_product_refresh','sp_product_recovery']:['sp_access','sp_refresh','sp_recovery'];
   const checkout=createCheckout({config:checkoutConfig,fetchImpl,origin:allowedOrigins[0],basePath,rpc,fault});
   const recoveryPage=allowedOrigins[0]+basePath;
-  const accountMail=resendKey?createAccountMail({supa,fetchImpl,baseUrl:recoveryPage,resendKey,fault}):null;
+  const accountMail=resendKey?createAccountMail({supa,fetchImpl,baseUrl:recoveryPage,resendKey,fault,serviceKey,now}):null;
   const purchaseAccess=createPurchaseAccess({supa,rpc,serviceKey});
-  const purchaseMail=purchaseMailKey?createPurchaseMail({purchaseAccess,supa,rpc,serviceKey,fetchImpl,baseUrl:recoveryPage,resendKey:purchaseMailKey}):null;
-  const registrationMail=resendKey?createRegistrationMail({supa,fetchImpl,baseUrl:recoveryPage,resendKey}):null;
+  const purchaseMail=purchaseMailKey?createPurchaseMail({purchaseAccess,supa,rpc,serviceKey,fetchImpl,baseUrl:recoveryPage,resendKey:purchaseMailKey,now}):null;
+  const registrationMail=resendKey?createRegistrationMail({supa,fetchImpl,baseUrl:recoveryPage,resendKey,serviceKey,now}):null;
   const mailAudit=purchaseMailKey?createMailAudit({rpc,fetchImpl,resendKey:purchaseMailKey}):null;
   const digest=value=>createHash('sha256').update(value).digest();
   const workerAuth=digest('Bearer '+serviceKey);
@@ -50,13 +54,19 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
     const origin=req.headers.get('origin');
     if(origins.has(origin)){headers.set('Access-Control-Allow-Origin',origin);headers.set('Access-Control-Allow-Credentials','true');headers.set('Vary','Origin');}
     const finish=(value,status=200)=>new Response(JSON.stringify(value),{status,headers});
-    const cookie=(name,value,age)=>headers.append('Set-Cookie',`${name}=${value}; Path=${cookiePath}; HttpOnly; Secure; SameSite=Lax; Max-Age=${age}`);
-    const recoveryCookie=(value,age)=>headers.append('Set-Cookie',`sp_recovery=${value}; Path=${cookiePath}/auth/reset; HttpOnly; Secure; SameSite=Strict; Max-Age=${age}`);
-    const clear=()=>{cookie('sp_access','',0);cookie('sp_refresh','',0);};
-    const setSession=session=>{cookie('sp_access',session.access_token,Number(session.expires_in)||3600);cookie('sp_refresh',session.refresh_token,7*86400);};
+    const cookieValue=(name,value)=>value&&accountIsolation&&sessionNames.includes(name)?sealProductCookie(value,{name,path:cookiePath,serviceKey}):value;
+    const cookie=(name,value,age)=>headers.append('Set-Cookie',`${name}=${cookieValue(name,value)}; Path=${cookiePath}; HttpOnly; Secure; SameSite=Lax; Max-Age=${age}`);
+    const recoveryCookie=(value,age)=>headers.append('Set-Cookie',`${sessionNames[2]}=${cookieValue(sessionNames[2],value)}; Path=${cookiePath}/auth/reset; HttpOnly; Secure; SameSite=Strict; Max-Age=${age}`);
+    const clear=()=>{cookie(sessionNames[0],'',0);cookie(sessionNames[1],'',0);};
+    const setSession=session=>{cookie(sessionNames[0],session.access_token,Number(session.expires_in)||3600);cookie(sessionNames[1],session.refresh_token,7*86400);};
     let user=null;
     try{
       const url=new URL(req.url),path=url.pathname.replace(/^.*\/simulou-passou-api(?=\/)/,'').replace(/^\/simulou-passou(?=\/)/,'');
+      if(path==='/api/internal/product-auth/probe'&&req.method==='POST'){
+        if(!timingSafeEqual(digest(req.headers.get('authorization')||''),workerAuth))return finish({error:'Operação não autorizada.'},403);
+        if(!productAuth)return finish({error:'Isolamento indisponível.'},503);
+        return finish(await productAuth.probe());
+      }
       if(path==='/api/internal/purchase-mail/audit'&&req.method==='GET'){
         if(!timingSafeEqual(digest(req.headers.get('authorization')||''),workerAuth))return finish({error:'Operação não autorizada.'},403);
         const id=url.searchParams.get('order');
@@ -90,19 +100,27 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
         if(!body||typeof body!=='object'||Array.isArray(body))throw fault(400,'Solicitação inválida.');
       }
       if(webhook)return finish(await checkout.handleWebhook(req,body));
-      const jar=cookies(req.headers.get('cookie'));let token=jar.sp_access;
+      const jar=cookies(req.headers.get('cookie'));
+      if(accountIsolation)for(const name of sessionNames)if(jar[name]){
+        try{jar[name]=openProductCookie(jar[name],{name,path:cookiePath,serviceKey});}
+        catch{delete jar[name];if(name===sessionNames[2])recoveryCookie('',0);else cookie(name,'',0);}
+      }
+      let token=jar[sessionNames[0]],refreshedSession=null;
+      if(accountIsolation&&(jar.sp_access||jar.sp_refresh)){cookie('sp_access','',0);cookie('sp_refresh','',0);}
       const sample=publicDemo({path,method:req.method,body,cookie:jar.sp_sample,secret:serviceKey,now:now(),
         issueCookie:(value,age)=>headers.append('Set-Cookie',`sp_sample=${value}; Path=${cookiePath}/sample; HttpOnly; Secure; SameSite=Strict; Max-Age=${age}`)});
       if(sample)return finish(sample.data,sample.status);
       // Public entry flows must not depend on a stale session from another tab.
-      const needsSession=!['/api/auth/register','/api/auth/login','/api/auth/recover'].includes(path)
+      const needsSession=!['/api/auth/register','/api/auth/login','/api/auth/recover','/api/auth/confirm','/api/auth/callback'].includes(path)
         &&!(path==='/api/auth/reset'&&body.recoveryKey!=null);
       if(needsSession&&token){try{user=await supa('/auth/v1/user',{token,key:publishableKey});}catch(e){if(e.status!==401&&e.status!==403)throw e;}}
-      if(needsSession&&!user&&jar.sp_refresh){
-        try{const session=await supa('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:{refresh_token:jar.sp_refresh},key:publishableKey});token=session.access_token;user=session.user;setSession(session);}catch(e){if(e.status>=500)throw e;clear();}
+      if(needsSession&&!user&&jar[sessionNames[1]]){
+        try{const session=await supa('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:{refresh_token:jar[sessionNames[1]]},key:publishableKey});token=session.access_token;user=session.user;refreshedSession=session;}catch(e){if(e.status>=500)throw e;clear();}
       }
+      if(user&&productAuth){user=await productAuth.resolve(user);if(!user)clear();else if(refreshedSession)setSession(refreshedSession);}
+      else if(user&&refreshedSession)setSession(refreshedSession);
       if(user&&(user.is_anonymous||!user.email)){user=null;clear();}
-      if(path==='/api/health'&&req.method==='GET'){await rpc('sp_runtime_load',{p_actor:null});return finish({ok:true,module:'simulou-passou',build:'access-refunds-v1',payments:checkout.configured?'configured':'disabled',guestCheckout:guestCheckoutEnabled&&checkout.configured,recoveryEmail:accountMail?'branded':'disabled',purchaseEmails:purchaseMail?'single-confirmation-and-access':'disabled'});}
+      if(path==='/api/health'&&req.method==='GET'){await rpc('sp_runtime_load',{p_actor:null});return finish({ok:true,module:'simulou-passou',build:'product-mail-isolation-v1',payments:checkout.configured?'configured':'disabled',guestCheckout:guestCheckoutEnabled&&checkout.configured,recoveryEmail:accountMail?'product-bound':'disabled',purchaseEmails:purchaseMail?'single-confirmation-and-access':'disabled'});}
       if(path==='/api/auth/demo'||path.includes('/demo-event'))return finish({error:'Operação de demonstração indisponível.'},404);
       if(path==='/api/auth/register'&&req.method==='POST'){
         const name=String(body.name||'').trim().slice(0,100),email=String(body.email||'').trim().toLowerCase(),password=String(body.password||'');
@@ -110,13 +128,16 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
         if(!registrationMail)throw fault(503,'O envio de e-mail está temporariamente indisponível.');
         const client=(req.headers.get('cf-connecting-ip')||req.headers.get('x-forwarded-for')?.split(',')[0]||'').trim().slice(0,80);
         await reserveMail(email,client);
-        try{await registrationMail({email,password,name});}catch(error){
+        try{
+          const account=productAuth?await productAuth.registration(email,name,password):null;
+          if(!productAuth||account)await registrationMail({email,authEmail:account?.authEmail,password,name});
+        }catch(error){
           if(![400,422].includes(error.status))throw fault(503,'Não conseguimos enviar a confirmação agora. Tente novamente em alguns minutos.');
         }
         return finish({confirmationRequired:true,message:'Confira seu e-mail para confirmar o cadastro. Se já tem uma conta, entre ou recupere sua senha.'});
       }
       if(path==='/api/auth/login'&&req.method==='POST'){
-        try{const session=await supa('/auth/v1/token?grant_type=password',{method:'POST',body:{email:String(body.email||'').trim(),password:String(body.password||'')},key:publishableKey});setSession(session);return finish({ok:true});}
+        try{const email=String(body.email||'').trim().toLowerCase(),password=String(body.password||'');const session=productAuth?await productAuth.login(email,password):await supa('/auth/v1/token?grant_type=password',{method:'POST',body:{email,password},key:publishableKey});setSession(session);return finish({ok:true});}
         catch(e){if(e.status>=500)throw e;throw fault(e.status===429?429:401,e.status===429?'Muitas tentativas. Aguarde alguns minutos.':'E-mail ou senha inválidos, ou e-mail ainda não confirmado.');}
       }
       if(path==='/api/auth/logout'&&req.method==='POST'){
@@ -126,15 +147,13 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
       if(path==='/api/auth/recover'&&req.method==='POST'){
         const email=String(body.email||'').trim().toLowerCase();
         if(email.length>254||!/^\S+@\S+\.\S+$/.test(email))throw fault(400,'Informe um e-mail válido.');
+        if(!accountMail)throw fault(503,'O envio de e-mail do Simulou Passou está temporariamente indisponível.');
         const client=(req.headers.get('cf-connecting-ip')||req.headers.get('x-forwarded-for')?.split(',')[0]||'').trim().slice(0,80);
         // Infrastructure failures must not be swallowed as an unknown account.
         await reserveMail(email,client);
         try{
-          if(accountMail){
-            await accountMail({email});
-          }else{
-            await supa('/auth/v1/recover?redirect_to='+encodeURIComponent(recoveryPage+'/'),{method:'POST',body:{email},key:publishableKey});
-          }
+          const account=productAuth?await productAuth.recovery(email):null;
+          if(!productAuth||account)await accountMail({email,authEmail:account?.authEmail});
         }catch(e){
           if(e.status===429)throw fault(429,'Aguarde alguns minutos antes de pedir outro link.');
           if(e.code!=='user_not_found')throw fault(503,'Não conseguimos enviar o link agora. Tente novamente em alguns minutos.');
@@ -142,12 +161,18 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
         return finish({message:'Confira sua caixa de entrada e o spam. Se houver uma conta para esse e-mail, o link de recuperação será enviado.'});
       }
       if(path==='/api/auth/callback'&&req.method==='POST'){
-        const access=String(body.access_token||''),refresh=String(body.refresh_token||'');
-        if(access.length>10000||refresh.length>2000||!access||!refresh)throw fault(400,'Link inválido.');
-        const account=await supa('/auth/v1/user',{token:access,key:publishableKey});
-        const session=await supa('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:{refresh_token:refresh},key:publishableKey});
-        if(!account.id||session.user?.id!==account.id||!session.access_token||!session.refresh_token)throw fault(401,'Link inválido ou expirado.');
-        setSession(session);return finish({ok:true});
+        throw fault(401,'Abra um link emitido pelo Simulou Passou. Solicite um novo link se necessário.');
+      }
+      if(path==='/api/auth/confirm'&&req.method==='POST'){
+        let tokenHash;
+        try{tokenHash=openAuthLink(body.confirmationKey,{purpose:'signup',baseUrl:recoveryPage,serviceKey,now:now()});}
+        catch{throw fault(401,'O link é inválido ou expirou. Solicite um novo cadastro.');}
+        try{
+          const session=await supa('/auth/v1/verify',{method:'POST',body:{token_hash:tokenHash,type:'signup'},key:publishableKey});
+          if(!session.user?.id||!session.access_token||!session.refresh_token)throw fault(401,'Link inválido ou expirado.');
+          if(productAuth&&!await productAuth.resolve(session.user))throw fault(401,'Link de outro produto. Solicite um novo cadastro.');
+          setSession(session);return finish({ok:true});
+        }catch(error){if(error.status>=500||error.status===429)throw error;throw fault(401,'O link é inválido ou expirou. Solicite um novo cadastro.');}
       }
       if(path==='/api/auth/reset'&&req.method==='POST'){
         const password=String(body.password||'');
@@ -156,14 +181,18 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
         let resetToken=token;
         if(recoveryKey!=null){
           if(typeof recoveryKey!=='string'||!recoveryKeyPattern.test(recoveryKey))throw fault(400,'Link inválido. Solicite um novo link.');
+          let tokenHash;
+          try{tokenHash=openAuthLink(recoveryKey,{purpose:'recovery',baseUrl:recoveryPage,serviceKey,now:now()});}
+          catch{throw fault(401,'O link é inválido ou expirou. Solicite um novo link do Simulou Passou.');}
           const keyDigest=mailKey(recoveryKey);
-          const [previousDigest,previousToken]=(jar.sp_recovery||'').split('~');
+          const [previousDigest,previousToken]=(jar[sessionNames[2]]||'').split('~');
           if(previousDigest===keyDigest&&previousToken){
             resetToken=previousToken;
           }else{
             try{
-              const session=await supa('/auth/v1/verify',{method:'POST',body:{token_hash:recoveryKey,type:'recovery'},key:publishableKey});
+              const session=await supa('/auth/v1/verify',{method:'POST',body:{token_hash:tokenHash,type:'recovery'},key:publishableKey});
               if(!session.access_token||!session.user?.id)throw fault(401,'Link inválido ou expirado.');
+              if(productAuth&&!await productAuth.resolve(session.user))throw fault(401,'Link de outro produto. Solicite um novo link do Simulou Passou.');
               resetToken=session.access_token;
               recoveryCookie(keyDigest+'~'+resetToken,300);
             }catch(e){
@@ -176,8 +205,8 @@ export function createCloudGateway({supabaseUrl,serviceKey,publishableKey,allowe
           if(!user)throw fault(401,'Abra o link de recuperação recebido por e-mail.');
           if(typeof body.currentPassword!=='string'||body.currentPassword.length<1)throw fault(400,'Informe sua senha atual.');
           try{
-            const verified=await supa('/auth/v1/token?grant_type=password',{method:'POST',key:publishableKey,body:{email:user.email,password:body.currentPassword}});
-            if(verified.user?.id!==user.id||!verified.access_token)throw fault(401,'A senha atual está incorreta.');
+            const verified=await supa('/auth/v1/token?grant_type=password',{method:'POST',key:publishableKey,body:{email:user.authEmail||user.email,password:body.currentPassword}});
+            if(verified.user?.id!==(user.authId||user.id)||!verified.access_token)throw fault(401,'A senha atual está incorreta.');
             resetToken=verified.access_token;
           }catch(error){
             if(error.status>=500||error.status===429)throw error;
